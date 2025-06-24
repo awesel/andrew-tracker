@@ -1,5 +1,24 @@
 import '@testing-library/jest-dom';
 
+// // Mock Firebase config for tests
+// jest.mock('./firebase', () => {
+//   const mockFirebaseConfig = {
+//     apiKey: 'test-api-key',
+//     authDomain: 'test-auth-domain',
+//     projectId: 'test-project-id',
+//     storageBucket: 'test-storage-bucket',
+//     messagingSenderId: 'test-msg-sender',
+//     appId: 'test-app-id',
+//   };
+
+//   return {
+//     auth: {},
+//     googleProvider: {},
+//     db: {},
+//     default: { /* mock app */ },
+//   };
+// });
+
 // Global mocks for Firebase Firestore to avoid runtime errors in tests
 jest.mock('firebase/firestore', () => {
   const actual = jest.requireActual('firebase/firestore');

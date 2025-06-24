@@ -524,7 +524,6 @@ export function Dashboard() {
   const [showManualMealModal, setShowManualMealModal] = useState(false);
   const [showNaturalLanguageModal, setShowNaturalLanguageModal] = useState(false);
   const [showPhotoFollowupModal, setShowPhotoFollowupModal] = useState(false);
-  const [photoAnalysisResult, setPhotoAnalysisResult] = useState<any>(null);
   const [photoImageUrl, setPhotoImageUrl] = useState<string | null>(null);
   const [manualMealForm, setManualMealForm] = useState({
     name: '',
@@ -748,7 +747,9 @@ export function Dashboard() {
 
   const handleNaturalLanguageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
+    console.log('🔍 Text input changed:', { newValue, length: newValue.length });
     const truncatedValue = truncateToWordLimit(newValue, MAX_WORDS);
+    console.log('🔍 After truncation:', { truncatedValue, length: truncatedValue.length });
     setNaturalLanguageDescription(truncatedValue);
   };
 
@@ -836,95 +837,146 @@ export function Dashboard() {
   };
 
   const handlePhotoFollowupSave = async () => {
-    if (!user || !photoAnalysisResult) return;
+    if (!user || !photoImageUrl) return;
+
+    console.log('🔍 handlePhotoFollowupSave called with:', {
+      photoImageUrl: photoImageUrl?.substring(0, 50) + '...',
+      naturalLanguageDescription,
+      descriptionLength: naturalLanguageDescription.length,
+      trimmedDescription: naturalLanguageDescription.trim(),
+      trimmedLength: naturalLanguageDescription.trim().length
+    });
 
     try {
       setIsProcessingNaturalLanguage(true);
       
-      if (naturalLanguageDescription.trim()) {
-        // User added additional details, analyze with combined context
-        const functions = getFunctions(firebaseApp);
-        const analyzeNaturalLanguageMealFn = httpsCallable(functions, 'analyzeNaturalLanguageMeal');
+      const functions = getFunctions(firebaseApp);
+      const analyzeMealFn = httpsCallable(functions, 'analyzeMeal');
+      
+      const finalDescription = naturalLanguageDescription.trim() || undefined;
+      console.log('🔍 Calling analyzeMeal with:', {
+        imageUrl: photoImageUrl?.substring(0, 50) + '...',
+        description: finalDescription,
+        hasDescription: !!finalDescription
+      });
+      
+      try {
+        // Call analyzeMeal with both image and optional description
+        const result = await analyzeMealFn({ 
+          imageUrl: photoImageUrl,
+          description: finalDescription
+        });
+        const response = result.data as any;
         
-        // Create combined description with photo context
-        const photoContext = `Based on the meal photo analysis: ${photoAnalysisResult.reasoning}. `;
-        const combinedDescription = photoContext + naturalLanguageDescription;
-        
-        try {
-          const result = await analyzeNaturalLanguageMealFn({ description: combinedDescription });
-          const response = result.data as any;
-          
-          if (!response || !response.result) {
-            throw new Error('Invalid response from analysis service');
-          }
-          
-          const { reasoning = '', result: nutrition = {} } = response;
-          const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
-
-          const mealName = title || altName;
-
-          await addDoc(collection(db, 'users', user.uid, 'entries'), {
-            ...(mealName ? { name: mealName } : {}),
-            calories: Number(calories) || 0,
-            protein_g: Number(protein_g) || 0,
-            fat_g: Number(fat_g) || 0,
-            carbs_g: Number(carbs_g) || 0,
-            reasoning,
-            imageUrl: photoImageUrl,
-            createdAt: serverTimestamp(),
-          });
-        } catch (functionError: any) {
-          // If natural language analysis fails, save the original photo analysis
-          console.warn('Natural language analysis failed, saving original photo analysis:', functionError);
-          await savePhotoAnalysisOnly();
+        if (!response || !response.result) {
+          throw new Error('Invalid response from analysis service');
         }
-      } else {
-        // No additional details, save original photo analysis
-        await savePhotoAnalysisOnly();
+        
+        const { reasoning = '', result: nutrition = {} } = response;
+        const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
+        const mealName = title || altName;
+
+        await addDoc(collection(db, 'users', user.uid, 'entries'), {
+          ...(mealName ? { name: mealName } : {}),
+          calories: Number(calories) || 0,
+          protein_g: Number(protein_g) || 0,
+          fat_g: Number(fat_g) || 0,
+          carbs_g: Number(carbs_g) || 0,
+          reasoning,
+          imageUrl: photoImageUrl,
+          createdAt: serverTimestamp(),
+        });
+      } catch (functionError: any) {
+        // Delete the uploaded image since we couldn't analyze it
+        try {
+          const storage = getStorage(firebaseApp) || {} as any;
+          const url = new URL(photoImageUrl);
+          const path = decodeURIComponent(url.pathname.split('/o/')[1].split('?')[0]);
+          const imageRef = ref(storage, path);
+          const firebaseStorage = await import('firebase/storage');
+          await (firebaseStorage as any).deleteObject(imageRef);
+        } catch (deleteError) {
+          console.warn('Failed to delete image after analysis error:', deleteError);
+        }
+
+        if (functionError?.code === 'resource-exhausted') {
+          alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
+          setShowPhotoFollowupModal(false);
+          setShowManualMealModal(true);
+        } else if (functionError?.message?.includes('OpenAI API key not configured')) {
+          alert('The AI analysis service is temporarily unavailable. Please try again later or use manual entry.');
+          setShowPhotoFollowupModal(false);
+          setShowManualMealModal(true);
+        } else if (functionError?.code === 'internal') {
+          alert('There was an internal error processing your request. Please try again or use manual entry.');
+          setShowPhotoFollowupModal(false);
+          setShowManualMealModal(true);
+        } else {
+          throw functionError; // Re-throw other errors to be caught by outer catch
+        }
       }
       
-      // Reset state
+      // Reset state on success
       setNaturalLanguageDescription('');
       setShowPhotoFollowupModal(false);
-      setPhotoAnalysisResult(null);
       setPhotoImageUrl(null);
     } catch (error) {
-      console.error('Error processing photo followup:', error);
-      alert('Failed to process meal details. Please try again.');
+      console.error('Error processing photo with description:', error);
+      alert('Failed to process meal. Please try again or use manual entry.');
     } finally {
       setIsProcessingNaturalLanguage(false);
     }
   };
 
-  const savePhotoAnalysisOnly = async () => {
-    if (!user || !photoAnalysisResult) return;
-
-    const { reasoning = '', result: nutrition = {} } = photoAnalysisResult;
-    const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
-    const mealName = title || altName;
-
-    await addDoc(collection(db, 'users', user.uid, 'entries'), {
-      ...(mealName ? { name: mealName } : {}),
-      calories,
-      protein_g,
-      fat_g,
-      carbs_g,
-      reasoning,
-      imageUrl: photoImageUrl,
-      createdAt: serverTimestamp(),
-    });
-  };
-
   const handlePhotoFollowupSkip = async () => {
-    // Save the original photo analysis without additional details
+    // Skip description and analyze with just the image
+    if (!user || !photoImageUrl) return;
+
+    console.log('🔍 handlePhotoFollowupSkip called with:', {
+      photoImageUrl: photoImageUrl?.substring(0, 50) + '...',
+      currentDescription: naturalLanguageDescription,
+      descriptionLength: naturalLanguageDescription.length
+    });
+
     try {
-      await savePhotoAnalysisOnly();
+      setIsProcessingNaturalLanguage(true);
+      
+      const functions = getFunctions(firebaseApp);
+      const analyzeMealFn = httpsCallable(functions, 'analyzeMeal');
+      
+      console.log('🔍 Calling analyzeMeal (skip) with only image:', {
+        imageUrl: photoImageUrl?.substring(0, 50) + '...'
+      });
+      
+      const result = await analyzeMealFn({ imageUrl: photoImageUrl });
+      const response = result.data as any;
+      
+      if (!response || !response.result) {
+        throw new Error('Invalid response from analysis service');
+      }
+      
+      const { reasoning = '', result: nutrition = {} } = response;
+      const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
+      const mealName = title || altName;
+
+      await addDoc(collection(db, 'users', user.uid, 'entries'), {
+        ...(mealName ? { name: mealName } : {}),
+        calories: Number(calories) || 0,
+        protein_g: Number(protein_g) || 0,
+        fat_g: Number(fat_g) || 0,
+        carbs_g: Number(carbs_g) || 0,
+        reasoning,
+        imageUrl: photoImageUrl,
+        createdAt: serverTimestamp(),
+      });
+      
       setShowPhotoFollowupModal(false);
-      setPhotoAnalysisResult(null);
       setPhotoImageUrl(null);
     } catch (error) {
-      console.error('Error saving photo analysis:', error);
-      alert('Failed to save meal. Please try again.');
+      console.error('Error analyzing photo:', error);
+      alert('Failed to analyze meal. Please try again or use manual entry.');
+    } finally {
+      setIsProcessingNaturalLanguage(false);
     }
   };
 
@@ -960,39 +1012,17 @@ export function Dashboard() {
       await uploadBytes(storageRef, jpegFile);
       const imageUrl = await getDownloadURL(storageRef);
 
-      const functions = getFunctions(firebaseApp);
-      const analyzeMealFn = httpsCallable(functions, 'analyzeMeal');
-      
-      try {
-        const result = await analyzeMealFn({ imageUrl });
-        const response = result.data as any;
-        
-        // Store analysis result and show followup modal
-        setPhotoAnalysisResult(response);
-        setPhotoImageUrl(imageUrl);
-        setNaturalLanguageDescription(''); // Reset description
-        setShowPhotoFollowupModal(true);
-      } catch (functionError: any) {
-        // Delete the uploaded image since we couldn't analyze it
-        try {
-          const imageRef = ref(storage, path);
-          // Use type assertion to access deleteObject from firebase/storage
-          const firebaseStorage = await import('firebase/storage');
-          await (firebaseStorage as any).deleteObject(imageRef);
-        } catch (deleteError) {
-          console.warn('Failed to delete image after analysis error:', deleteError);
-        }
-
-        if (functionError?.code === 'resource-exhausted') {
-          alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
-          setShowManualMealModal(true);
-        } else {
-          throw functionError; // Re-throw other errors to be caught by outer catch
-        }
-      }
+      // Store image URL and show input modal immediately (no analysis yet)
+      console.log('🔍 Photo uploaded successfully, showing modal:', {
+        imageUrl: imageUrl.substring(0, 50) + '...',
+        resetDescription: ''
+      });
+      setPhotoImageUrl(imageUrl);
+      setNaturalLanguageDescription(''); // Reset description
+      setShowPhotoFollowupModal(true);
     } catch (error) {
-      console.error('Error processing meal image:', error);
-      alert('Failed to process meal image. Please try again or use manual entry.');
+      console.error('Error uploading meal image:', error);
+      alert('Failed to upload meal image. Please try again or use manual entry.');
     }
   };
 
@@ -1291,35 +1321,34 @@ export function Dashboard() {
         <div className="modal-backdrop">
           <div className="modal">
             <div className="modal-header">
-              <h2 className="modal-title">Add More Details</h2>
+              <h2 className="modal-title">📷 Photo Uploaded!</h2>
             </div>
             <div className="modal-body">
-              <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-green-600">✅</span>
-                  <span className="text-sm font-medium text-green-800">Photo analyzed successfully!</span>
+                  <span className="text-blue-600">📷</span>
+                  <span className="text-sm font-medium text-blue-800">Ready to analyze your meal photo</span>
                 </div>
-                {photoAnalysisResult?.result && (
-                  <div className="text-sm text-green-700">
-                    <strong>{photoAnalysisResult.result.title || 'Meal'}</strong> - 
-                    {' '}{photoAnalysisResult.result.calories} calories
-                  </div>
-                )}
+                <div className="text-sm text-blue-700">
+                  You can add details below or skip to analyze the image as-is
+                </div>
               </div>
               
               <div className="form-group">
-                <label className="form-label">Is there anything else you'd like to add about your meal?</label>
+                <label className="form-label">Want to add any details about your meal? (Optional)</label>
                 <textarea
                   value={naturalLanguageDescription}
                   onChange={handleNaturalLanguageChange}
                   onPaste={handleNaturalLanguagePaste}
-                  placeholder="I ate half of what's in the photo"
+                  placeholder="e.g., I ate half of what's shown, this includes extra sauce, cooked with olive oil..."
                   rows={3}
                   className="form-textarea"
+                  onFocus={() => console.log('🔍 Textarea focused, current value:', naturalLanguageDescription)}
+                  onBlur={() => console.log('🔍 Textarea blurred, current value:', naturalLanguageDescription)}
                 />
                 <div className="flex justify-between items-center">
                   <div className="form-help text-gray-500">
-                    Optional: Add portion details, cooking method, or other adjustments
+                    Examples: portion size, cooking method, hidden ingredients, etc.
                   </div>
                   <div className={`text-sm ${isApproachingWordLimit() ? 'text-orange-600 font-medium' : 'text-gray-500'}`}>
                     {getWordCount()}/{MAX_WORDS} words
@@ -1341,22 +1370,29 @@ export function Dashboard() {
               <button
                 onClick={handlePhotoFollowupSkip}
                 disabled={isProcessingNaturalLanguage}
-                className="btn btn-secondary"
-              >
-                Skip & Save
-              </button>
-              <button
-                onClick={handlePhotoFollowupSave}
-                disabled={isProcessingNaturalLanguage}
-                className="btn btn-primary"
+                className="btn btn-primary flex-1"
               >
                 {isProcessingNaturalLanguage ? (
                   <>
                     <div className="loading-spinner w-4 h-4 border border-white border-t-transparent"></div>
-                    <span>Processing...</span>
+                    <span>Analyzing...</span>
                   </>
                 ) : (
-                  <>🤖 Analyze Meal</>
+                  <>🤖 Skip text input</>
+                )}
+              </button>
+              <button
+                onClick={handlePhotoFollowupSave}
+                disabled={isProcessingNaturalLanguage}
+                className="btn btn-accent flex-1"
+              >
+                {isProcessingNaturalLanguage ? (
+                  <>
+                    <div className="loading-spinner w-4 h-4 border border-white border-t-transparent"></div>
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>🤖 Analyze with Details</>
                 )}
               </button>
             </div>

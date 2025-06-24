@@ -9,6 +9,7 @@ export const analyzeMeal = onCall(
     region: 'us-central1',
     maxInstances: 10,
     timeoutSeconds: 60,
+    memory: '512MiB',
     secrets: ['OPENAI_KEY'],
   },
   async (request: any) => {

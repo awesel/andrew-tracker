@@ -2,7 +2,6 @@ import { initializeApp } from 'firebase-admin/app';
 import { onCall } from 'firebase-functions/v2/https';
 import * as functions from 'firebase-functions';
 import { getFirestore } from 'firebase-admin/firestore';
-import type { Transaction } from 'firebase-admin/firestore';
 
 // Initialize the admin SDK once per execution environment.
 initializeApp();
@@ -27,7 +26,7 @@ export async function checkAndIncrementUsage(userId: string): Promise<boolean> {
     .doc(today.toISOString().split('T')[0]);
 
   try {
-    const result = await db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction: any) => {
       const usageDoc = await transaction.get(usageRef);
       const currentCount = usageDoc.exists ? usageDoc.data()?.count || 0 : 0;
 
@@ -46,6 +45,7 @@ export async function checkAndIncrementUsage(userId: string): Promise<boolean> {
     return result;
   } catch (error) {
     console.error('Error checking usage limit:', error);
+    // Return false instead of throwing to prevent 500 errors
     return false;
   }
 }
@@ -55,7 +55,7 @@ export const getRemainingRequests = onCall(
   {
     region: 'us-central1',
   },
-  async (request) => {
+  async (request: { auth?: { uid: string } }) => {
     const { auth } = request;
     if (!auth) {
       throw new functions.https.HttpsError('unauthenticated', 'Must be authenticated');

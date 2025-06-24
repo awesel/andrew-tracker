@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useMemo } from 'react';
 import { useDailyTotals } from '../hooks/useDailyTotals';
 import { useDailyEntries } from '../hooks/useDailyEntries';
 import type { MealEntry } from '../hooks/useDailyEntries';
@@ -534,6 +534,25 @@ export function Dashboard() {
   const [collapsedAnalysis, setCollapsedAnalysis] = useState<{ [key: string]: boolean }>({});
   const [isProcessingNaturalLanguage, setIsProcessingNaturalLanguage] = useState(false);
 
+  // Constants and derived values
+  const DAILY_GOALS = userData?.dailyGoals ?? FALLBACK_DAILY_GOALS;
+  
+  // Memoize expensive computations (ALL HOOKS BEFORE ANY EARLY RETURNS)
+  const remainingCals = useMemo(() => {
+    return Math.max(0, DAILY_GOALS.calories - totals.calories);
+  }, [DAILY_GOALS.calories, totals.calories]);
+
+  // Helper utilities for date navigation
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const isSelectedDateToday = useMemo(() => {
+    return selectedDate.getTime() === today.getTime();
+  }, [selectedDate, today]);
+
   // Word count helpers for natural language description
   const MAX_WORDS = 100;
   const WARNING_THRESHOLD = 90;
@@ -560,8 +579,6 @@ export function Dashboard() {
     return MAX_WORDS - getWordCount();
   };
 
-  const DAILY_GOALS = userData?.dailyGoals ?? FALLBACK_DAILY_GOALS;
-
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -570,6 +587,7 @@ export function Dashboard() {
     }
   };
 
+  // Early returns AFTER all hooks
   if (loading) {
     return (
       <div className="mobile-container">
@@ -580,15 +598,6 @@ export function Dashboard() {
       </div>
     );
   }
-
-  const remainingCals = Math.max(DAILY_GOALS.calories - totals.calories, 0);
-
-  // Helper utilities for date navigation
-  const today = (() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  })();
 
   const formatDateInput = (date: Date) => date.toISOString().split('T')[0];
 
@@ -608,7 +617,7 @@ export function Dashboard() {
     });
   };
 
-  const isSelectedDateToday = selectedDate.getTime() === today.getTime();
+
 
   const handleEditMeal = (meal: MealEntry) => {
     setEditingMeal(meal);
@@ -767,6 +776,12 @@ export function Dashboard() {
       try {
         const result = await analyzeNaturalLanguageMealFn({ description: naturalLanguageDescription });
         const response = result.data as any;
+        
+        // More robust response validation
+        if (!response || !response.result) {
+          throw new Error('Invalid response from analysis service');
+        }
+        
         const { reasoning = '', result: nutrition = {} } = response;
         const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
 
@@ -774,10 +789,10 @@ export function Dashboard() {
 
         await addDoc(collection(db, 'users', user.uid, 'entries'), {
           ...(mealName ? { name: mealName } : {}),
-          calories,
-          protein_g,
-          fat_g,
-          carbs_g,
+          calories: Number(calories) || 0,
+          protein_g: Number(protein_g) || 0,
+          fat_g: Number(fat_g) || 0,
+          carbs_g: Number(carbs_g) || 0,
           reasoning,
           createdAt: serverTimestamp(),
         });
@@ -785,8 +800,22 @@ export function Dashboard() {
         setNaturalLanguageDescription('');
         setShowNaturalLanguageModal(false);
       } catch (functionError: any) {
+        console.error('Function error details:', {
+          code: functionError?.code,
+          message: functionError?.message,
+          details: functionError?.details
+        });
+        
         if (functionError?.code === 'resource-exhausted') {
           alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
+          setShowNaturalLanguageModal(false);
+          setShowManualMealModal(true);
+        } else if (functionError?.message?.includes('OpenAI API key not configured')) {
+          alert('The AI analysis service is temporarily unavailable. Please try again later or use manual entry.');
+          setShowNaturalLanguageModal(false);
+          setShowManualMealModal(true);
+        } else if (functionError?.code === 'internal') {
+          alert('There was an internal error processing your request. Please try again or use manual entry.');
           setShowNaturalLanguageModal(false);
           setShowManualMealModal(true);
         } else {

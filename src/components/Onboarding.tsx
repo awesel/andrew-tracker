@@ -6,15 +6,12 @@ import { calculateSuggestedMacros } from '../utils/macroCalculator';
 import { imperialToMetric, metricToImperial } from '../utils/unitConversion';
 import type { 
   UserMetrics, 
-  MacroSuggestion, 
-  Gender, 
   ActivityLevel,
   WeightGoal,
 } from '../utils/macroCalculator';
 import type {
   UnitSystem,
   ImperialMetrics,
-  MetricMetrics,
 } from '../utils/unitConversion';
 
 interface DailyGoals {
@@ -38,17 +35,9 @@ const WEIGHT_GOAL_LABELS: Record<WeightGoal, string> = {
   gain: 'Gain weight (about 1 pound per week)',
 };
 
-const PRESET_GOALS = {
-  'Maintenance': { calories: 2000, protein: 150, fat: 70, carbs: 250 },
-  'Weight Loss': { calories: 1600, protein: 120, fat: 55, carbs: 180 },
-  'Muscle Gain': { calories: 2400, protein: 180, fat: 80, carbs: 300 },
-  'Athletic': { calories: 2800, protein: 200, fat: 90, carbs: 350 },
-};
-
 export function Onboarding() {
   const { user, userData } = useAuthState();
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
   // Decide initial step based on what data already exists
   useEffect(() => {
@@ -83,7 +72,6 @@ export function Onboarding() {
   });
   
   // Step 3 state (suggested macros)
-  const [suggestedMacros, setSuggestedMacros] = useState<MacroSuggestion | null>(null);
   const [goals, setGoals] = useState({ calories: '', protein: '', fat: '', carbs: '' });
   const [saving, setSaving] = useState(false);
 
@@ -161,7 +149,6 @@ export function Onboarding() {
 
   const handleNextFromStep2 = () => {
     const macros = calculateSuggestedMacros(metrics);
-    setSuggestedMacros(macros);
     setGoals({
       calories: macros.calories.toString(),
       protein: macros.protein.toString(),
@@ -205,17 +192,6 @@ export function Onboarding() {
   const canProceedStep1 = apiKey.trim().length > 0;
   const canProceedStep2 = metrics.height > 0 && metrics.weight > 0;
   const canProceedStep3 = Object.values(goals).every((v) => Number(v) > 0);
-
-  const handlePresetSelect = (presetName: string) => {
-    setSelectedPreset(presetName);
-    const preset = PRESET_GOALS[presetName as keyof typeof PRESET_GOALS];
-    setGoals({
-      calories: preset.calories.toString(),
-      protein: preset.protein.toString(),
-      fat: preset.fat.toString(),
-      carbs: preset.carbs.toString(),
-    });
-  };
 
   const StepIndicator = () => (
     <div className="flex items-center justify-center mb-8">

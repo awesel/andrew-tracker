@@ -26,9 +26,11 @@ jest.mock('firebase-functions', () => ({
   config: jest.fn(),
   https: {
     HttpsError: class MockHttpsError extends Error {
-      constructor(public code: string, message: string) {
+      code: string;
+      constructor(code: string, message: string) {
         super(message);
         this.name = 'HttpsError';
+        this.code = code;
       }
     },
   },

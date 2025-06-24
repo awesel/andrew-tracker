@@ -112,19 +112,9 @@ describe('Auth Component', () => {
 });
 
 describe('useAuthState hook', () => {
-  test('redirects to /onboarding when apiKey is missing', () => {
-    const mockUser = {
-      uid: 'test-uid',
-      email: 'test@example.com'
-    };
-    
-    // This test would verify the redirect logic
-    // Implementation depends on routing library used
-  });
-
   test('redirects to /onboarding when goals are missing', () => {
     const mockUser = {
-      uid: 'test-uid', 
+      uid: 'test-uid',
       email: 'test@example.com'
     };
     

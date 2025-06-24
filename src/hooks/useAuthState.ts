@@ -40,8 +40,8 @@ export function useAuthState(): AuthState {
         if (userDoc.exists()) {
           const data = userDoc.data() as UserData;
           
-          // Check if user needs onboarding
-          const needsOnboarding = !data.apiKey || !data.dailyGoals;
+          // Check if user needs onboarding (only check for dailyGoals now)
+          const needsOnboarding = !data.dailyGoals;
           
           // Batch all state updates together to prevent race conditions
           setAuthState({

@@ -951,7 +951,6 @@ export function Dashboard() {
       <input
         type="file"
         accept="image/*"
-        capture="environment"
         ref={fileInputRef}
         style={{ display: 'none' }}
         onChange={handleFileSelected}

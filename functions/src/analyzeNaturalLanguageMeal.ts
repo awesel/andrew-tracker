@@ -44,17 +44,13 @@ export const analyzeNaturalLanguageMeal = onCall(
       throw new functions.https.HttpsError('invalid-argument', 'Meal description cannot exceed 100 words.');
     }
 
-    // Fetch the user-scoped OpenAI API key stored in Firestore.
-    const snapshot = await getFirestore()
-      .doc(`users/${auth.uid}`)
-      .get();
-
-    const { apiKey } = (snapshot.data() || {}) as { apiKey?: string };
+    // Use the OpenAI API key from Firebase Functions config
+    const apiKey = functions.config().openai?.key;
     if (!apiKey) {
-      throw new functions.https.HttpsError('failed-precondition', 'Missing OpenAI API key. Please add it during onboarding.');
+      throw new functions.https.HttpsError('internal', 'OpenAI API key not configured in Firebase Functions.');
     }
 
-    // Instantiate the OpenAI client with the user-specific key.
+    // Instantiate the OpenAI client with the universal key
     const openai = new OpenAI({ apiKey });
 
     // System prompt enforcing descriptive titles and strict JSON output.

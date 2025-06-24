@@ -28,10 +28,13 @@ jest.mock('firebase-admin/firestore', () => ({
 
 // Import the function after mocking
 import { analyzeMeal } from './src/analyzeMeal';
+import * as functions from 'firebase-functions';
 
 describe('analyzeMeal Cloud Function', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Reset Firebase Functions config mock
+    (functions.config as jest.Mock) = jest.fn().mockReturnValue({});
   });
 
   describe('Authentication', () => {
@@ -62,6 +65,36 @@ describe('analyzeMeal Cloud Function', () => {
       };
 
       await expect(analyzeMeal.run(call as any)).rejects.toThrow('The function must be called with an "imageUrl" argument.');
+    });
+  });
+
+  describe('Environment configuration', () => {
+    it('should throw internal error when OpenAI API key is not configured', async () => {
+      const call = {
+        data: { imageUrl: 'https://example.com/image.jpg' },
+        auth: { uid: 'test-user' }
+      };
+
+      await expect(analyzeMeal.run(call as any)).rejects.toThrow('OpenAI API key not configured in Firebase Functions.');
+    });
+
+    it('should use OpenAI API key from Firebase Functions config when configured', async () => {
+      (functions.config as jest.Mock).mockReturnValue({
+        openai: { key: 'test-key' }
+      });
+
+      const call = {
+        data: { imageUrl: 'https://example.com/image.jpg' },
+        auth: { uid: 'test-user' }
+      };
+
+      // This will likely fail due to OpenAI API call, but we just want to verify it gets past the API key check
+      try {
+        await analyzeMeal.run(call as any);
+      } catch (error: any) {
+        // Ensure the error is not about the API key configuration
+        expect(error.message).not.toContain('OpenAI API key not configured');
+      }
     });
   });
 

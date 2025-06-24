@@ -37,26 +37,21 @@ const WEIGHT_GOAL_LABELS: Record<WeightGoal, string> = {
 
 export function Onboarding() {
   const { user, userData } = useAuthState();
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Decide initial step based on what data already exists
   useEffect(() => {
     if (!userData) return;
 
-    if (!userData.apiKey) {
+    if (!userData.dailyGoals || Object.keys(userData.dailyGoals).length === 0) {
       setStep(1);
-    } else if (!userData.dailyGoals || Object.keys(userData.dailyGoals).length === 0) {
-      setStep(2);
     } else {
       // If everything exists, send them away to dashboard
       window.location.href = '/';
     }
   }, [userData]);
-
-  // Step 1 state
-  const [apiKey, setApiKey] = useState('');
   
-  // Step 2 state (user metrics)
+  // Step 1 state (user metrics)
   const [unitSystem, setUnitSystem] = useState<UnitSystem>('imperial');
   const [metrics, setMetrics] = useState<UserMetrics>({
     gender: 'male',
@@ -71,7 +66,7 @@ export function Onboarding() {
     pounds: 154, // ~70kg
   });
   
-  // Step 3 state (suggested macros)
+  // Step 2 state (suggested macros)
   const [goals, setGoals] = useState({ calories: '', protein: '', fat: '', carbs: '' });
   const [saving, setSaving] = useState(false);
 
@@ -124,30 +119,7 @@ export function Onboarding() {
     setGoals({ ...goals, [field]: value });
   };
 
-  const handleNextFromStep1 = async () => {
-    if (!user) return;
-    setSaving(true);
-    try {
-      const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(
-        userDocRef,
-        {
-          apiKey: apiKey.trim(),
-          onboardingStep: 2,
-        },
-        { merge: true },
-      );
-
-      setStep(2);
-    } catch (err) {
-      console.error('Error saving API key during onboarding', err);
-      alert('Failed to save your API key. Please try again.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleNextFromStep2 = () => {
+  const handleNextFromStep1 = () => {
     const macros = calculateSuggestedMacros(metrics);
     setGoals({
       calories: macros.calories.toString(),
@@ -155,7 +127,7 @@ export function Onboarding() {
       fat: macros.fat.toString(),
       carbs: macros.carbs.toString(),
     });
-    setStep(3);
+    setStep(2);
   };
 
   const handleSave = async () => {
@@ -177,7 +149,7 @@ export function Onboarding() {
         { merge: true },
       );
 
-      setStep(4);
+      setStep(3);
 
       setTimeout(() => {
         window.location.href = '/';
@@ -189,13 +161,12 @@ export function Onboarding() {
     }
   };
 
-  const canProceedStep1 = apiKey.trim().length > 0;
-  const canProceedStep2 = metrics.height > 0 && metrics.weight > 0;
-  const canProceedStep3 = Object.values(goals).every((v) => Number(v) > 0);
+  const canProceedStep1 = metrics.height > 0 && metrics.weight > 0;
+  const canProceedStep2 = Object.values(goals).every((v) => Number(v) > 0);
 
   const StepIndicator = () => (
     <div className="flex items-center justify-center mb-8">
-      {[1, 2, 3, 4].map((stepNumber) => (
+      {[1, 2, 3].map((stepNumber) => (
         <React.Fragment key={stepNumber}>
           <div className={`
             w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
@@ -206,7 +177,7 @@ export function Onboarding() {
           `}>
             {step > stepNumber ? '✓' : stepNumber}
           </div>
-          {stepNumber < 4 && (
+          {stepNumber < 3 && (
             <div className={`
               w-12 h-1 mx-2
               ${step > stepNumber ? 'bg-primary' : 'bg-gray-200'}
@@ -214,93 +185,6 @@ export function Onboarding() {
           )}
         </React.Fragment>
       ))}
-    </div>
-  );
-
-  const renderStep1 = () => (
-    <div className="animate-slide-up">
-      <div className="text-center mb-8">
-        <h2 className="text-2xl font-semibold text-gray-900 mb-3">
-          👋 Welcome to Your Food Tracker
-        </h2>
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="text-left p-4 border rounded-lg bg-blue-50">
-              <h3 className="text-xl font-medium text-gray-900 mb-2">
-                📸 Snap a Photo
-              </h3>
-              <p className="text-gray-600">
-                Simply take a photo of your meal and we'll automatically analyze it for you. Quick, easy, and accurate tracking at your fingertips.
-              </p>
-            </div>
-            <div className="text-left p-4 border rounded-lg bg-green-50">
-              <h3 className="text-xl font-medium text-gray-900 mb-2">
-                💬 Natural Language
-              </h3>
-              <p className="text-gray-600">
-                Or just type what you ate naturally, like "bowl of oatmeal with banana and honey" - we'll handle the rest!
-              </p>
-            </div>
-          </div>
-        </div>
-        <h3 className="text-xl font-semibold text-gray-900 mb-3">
-          🔑 First, Let's Setup Your API Access
-        </h3>
-        <p className="text-gray-600 leading-relaxed">
-          We need an OpenAI API key to analyze your meal photos and provide nutrition information.
-        </p>
-      </div>
-
-      <div className="card mb-6">
-        <div className="card-body">
-          <div className="form-group">
-            <label htmlFor="apiKey" className="form-label">
-              OpenAI API Key
-            </label>
-            <input
-              id="apiKey"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="form-input"
-              autoComplete="off"
-            />
-            <div className="form-help">
-              Your API key is stored securely and only used for meal analysis.
-              <br />
-              <a 
-                href="https://platform.openai.com/api-keys" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                Get your API key from OpenAI →
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-3">
-        <button 
-          disabled={!canProceedStep1 || saving} 
-          onClick={handleNextFromStep1} 
-          className="btn btn-primary w-full"
-        >
-          {saving ? (
-            <>
-              <div className="loading-spinner w-4 h-4 border border-white border-t-transparent"></div>
-              <span>Saving...</span>
-            </>
-          ) : (
-            <>
-              Next
-              <span>→</span>
-            </>
-          )}
-        </button>
-      </div>
     </div>
   );
 
@@ -458,8 +342,8 @@ export function Onboarding() {
 
       <div className="flex gap-3">
         <button 
-          disabled={!canProceedStep2} 
-          onClick={handleNextFromStep2} 
+          disabled={!canProceedStep1} 
+          onClick={handleNextFromStep1} 
           className="btn btn-primary w-full"
         >
           Calculate Suggested Macros
@@ -538,7 +422,7 @@ export function Onboarding() {
 
       <div className="flex gap-3">
         <button 
-          disabled={!canProceedStep3 || saving} 
+          disabled={!canProceedStep2 || saving} 
           onClick={handleSave} 
           className="btn btn-primary w-full"
         >
@@ -589,10 +473,9 @@ export function Onboarding() {
 
         {/* Step Content */}
         <div className="flex-1 max-w-md mx-auto w-full">
-          {step === 1 && renderStep1()}
-          {step === 2 && renderStep2()}
-          {step === 3 && renderStep3()}
-          {step === 4 && renderStep4()}
+          {step === 1 && renderStep2()}
+          {step === 2 && renderStep3()}
+          {step === 3 && renderStep4()}
         </div>
       </div>
     </div>

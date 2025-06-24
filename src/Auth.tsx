@@ -144,39 +144,41 @@ export function Auth() {
               <span className="text-primary">Effortlessly</span>
             </h1>
             
+        
+            
             <p className="text-gray-600 text-lg mb-8 leading-relaxed">
-              Snap photos of your meals and get instant nutrition analysis. 
-              Set goals, track progress, and build healthier habits.
+              Take photos or describe your meal, and the AI will handle the actual logging. 
+              Get instant nutrition analysis, set goals, and build healthier habits.
             </p>
 
             {/* Feature Cards */}
             <div className="grid grid-cols-1 gap-4 mb-8">
               <div className="card card-compact">
                 <div className="card-body flex flex-row items-center gap-3">
+                  <div className="text-2xl">🤖</div>
+                  <div className="text-left">
+                    <h3 className="font-semibold text-gray-900">AI Does the Work</h3>
+                    <p className="text-sm text-gray-600">Just snap or describe - AI handles all logging</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="card card-compact">
+                <div className="card-body flex flex-row items-center gap-3">
                   <div className="text-2xl">📷</div>
                   <div className="text-left">
-                    <h3 className="font-semibold text-gray-900">Photo Analysis</h3>
-                    <p className="text-sm text-gray-600">AI-powered meal recognition</p>
+                    <h3 className="font-semibold text-gray-900">Photo & Voice Input</h3>
+                    <p className="text-sm text-gray-600">Take photos or describe meals naturally</p>
                   </div>
                 </div>
               </div>
               
               <div className="card card-compact">
                 <div className="card-body flex flex-row items-center gap-3">
-                  <div className="text-2xl">📊</div>
+                  <div className="text-2xl">🔓</div>
                   <div className="text-left">
-                    <h3 className="font-semibold text-gray-900">Smart Tracking</h3>
-                    <p className="text-sm text-gray-600">Automatic macro calculations</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="card card-compact">
-                <div className="card-body flex flex-row items-center gap-3">
-                  <div className="text-2xl">🎯</div>
-                  <div className="text-left">
-                    <h3 className="font-semibold text-gray-900">Goal Setting</h3>
-                    <p className="text-sm text-gray-600">Personalized nutrition targets</p>
+                    <h3 className="font-semibold text-gray-900">Free & Open Source</h3>
+                    <p className="text-sm text-gray-600">No hidden costs, fully transparent code</p>
                   </div>
                 </div>
               </div>

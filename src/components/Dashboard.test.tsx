@@ -7,6 +7,7 @@ import { useAuthState } from '../hooks/useAuthState';
 import { doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { getStorage, ref } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import '@testing-library/jest-dom';
 
 // Mock the hooks
 jest.mock('../hooks/useDailyTotals');
@@ -64,10 +65,10 @@ const mockStorageRef = {
 
 jest.mock('firebase/storage', () => ({
   getStorage: jest.fn(),
-  ref: jest.fn(() => mockStorageRef),
+  ref: jest.fn(() => ({ delete: jest.fn().mockResolvedValue(undefined) })),
   uploadBytes: jest.fn(),
   getDownloadURL: jest.fn(),
-  deleteObject: mockDeleteObject,
+  deleteObject: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe('Dashboard', () => {
@@ -768,5 +769,33 @@ describe('Dashboard', () => {
     
     fireEvent.change(textarea, { target: { value: over100Words } });
     expect(textarea).toHaveValue(exactly100Words);
+  });
+
+  it('shows "add your first meal" message for today when no meals are logged', async () => {
+    render(<Dashboard />);
+    
+    await waitFor(() => {
+      expect(screen.getByText('📷 Add Your First Meal')).toBeInTheDocument();
+      expect(screen.getByText('Start tracking your nutrition by adding your first meal!')).toBeInTheDocument();
+    });
+  });
+
+  it('shows "days in the past are not editable" message for past days when no meals are logged', async () => {
+    // Mock empty entries for this test
+    mockUseDailyEntries.mockReturnValue({
+      entries: [],
+      loading: false
+    });
+    
+    render(<Dashboard />);
+    
+    // Navigate to previous day
+    const prevButton = screen.getByLabelText('Previous day');
+    fireEvent.click(prevButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Days in the past are not editable right now')).toBeInTheDocument();
+      expect(screen.queryByText('📷 Add Your First Meal')).not.toBeInTheDocument();
+    });
   });
 }); 

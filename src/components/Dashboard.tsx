@@ -555,6 +555,10 @@ export function Dashboard() {
     return selectedDate.getTime() === today.getTime();
   }, [selectedDate, today]);
 
+  const isSelectedDateInPast = useMemo(() => {
+    return selectedDate.getTime() < today.getTime();
+  }, [selectedDate, today]);
+
   // Word count helpers for natural language description
   const MAX_WORDS = 100;
   const WARNING_THRESHOLD = 90;
@@ -1094,15 +1098,23 @@ export function Dashboard() {
               <h3 className="text-lg font-medium text-gray-900 mb-2">
                 No meals logged yet
               </h3>
-              <p className="text-gray-600 mb-6">
-                Start tracking your nutrition by adding your first meal!
-              </p>
-              <button 
-                onClick={handleAddMeal}
-                className="btn btn-primary"
-              >
-                📷 Add Your First Meal
-              </button>
+              {isSelectedDateInPast ? (
+                <p className="text-gray-600 mb-6">
+                  Days in the past are not editable right now
+                </p>
+              ) : (
+                <>
+                  <p className="text-gray-600 mb-6">
+                    Start tracking your nutrition by adding your first meal!
+                  </p>
+                  <button 
+                    onClick={handleAddMeal}
+                    className="btn btn-primary"
+                  >
+                    📷 Add Your First Meal
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ) : (
@@ -1128,31 +1140,33 @@ export function Dashboard() {
       </div>
 
       {/* Floating Action Buttons */}
-      <div className="fab-container">
-        <button
-          onClick={handleAddMeal}
-          className="fab fab-primary"
-          title="Take Photo"
-        >
-          📷
-        </button>
+      {!isSelectedDateInPast && (
+        <div className="fab-container">
+          <button
+            onClick={handleAddMeal}
+            className="fab fab-primary"
+            title="Take Photo"
+          >
+            📷
+          </button>
 
-        <button
-          onClick={() => setShowNaturalLanguageModal(true)}
-          className="fab fab-accent"
-          title="Describe Your Meal"
-        >
-          💬
-        </button>
+          <button
+            onClick={() => setShowNaturalLanguageModal(true)}
+            className="fab fab-accent"
+            title="Describe Your Meal"
+          >
+            💬
+          </button>
 
-        <button
-          onClick={() => setShowManualMealModal(true)}
-          className="fab fab-secondary"
-          title="Add Manual Meal"
-        >
-          ✏️
-        </button>
-      </div>
+          <button
+            onClick={() => setShowManualMealModal(true)}
+            className="fab fab-secondary"
+            title="Add Manual Meal"
+          >
+            ✏️
+          </button>
+        </div>
+      )}
 
       {/* Hidden file input */}
       <input

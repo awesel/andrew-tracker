@@ -167,7 +167,7 @@ export function Auth() {
                 <div className="card-body flex flex-row items-center gap-3">
                   <div className="text-2xl">📷</div>
                   <div className="text-left">
-                    <h3 className="font-semibold text-gray-900">Photo & Voice Input</h3>
+                    <h3 className="font-semibold text-gray-900">Photo & Text Input</h3>
                     <p className="text-sm text-gray-600">Take photos or describe meals naturally</p>
                   </div>
                 </div>

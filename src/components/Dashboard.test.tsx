@@ -6,6 +6,7 @@ import { useDailyEntries } from '../hooks/useDailyEntries';
 import { useAuthState } from '../hooks/useAuthState';
 import { doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { getStorage, ref } from 'firebase/storage';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // Mock the hooks
 jest.mock('../hooks/useDailyTotals');
@@ -28,6 +29,7 @@ jest.mock('firebase/storage', () => ({
   ref: jest.fn(),
   uploadBytes: jest.fn(),
   getDownloadURL: jest.fn(),
+  deleteObject: jest.fn(),
 }));
 
 jest.mock('firebase/functions', () => ({
@@ -48,6 +50,13 @@ const mockUseDailyTotals = useDailyTotals as jest.MockedFunction<typeof useDaily
 const mockUseDailyEntries = useDailyEntries as jest.MockedFunction<typeof useDailyEntries>;
 const mockUseAuthState = useAuthState as jest.MockedFunction<typeof useAuthState>;
 
+// Mock Firebase Functions
+const mockHttpsCallable = jest.fn();
+const mockGetFunctions = jest.fn();
+const mockUploadBytes = jest.fn();
+const mockGetDownloadURL = jest.fn();
+const mockDeleteObject = jest.fn().mockResolvedValue(undefined);
+
 // Mock Firebase Storage
 const mockStorageRef = {
   delete: jest.fn().mockResolvedValue(undefined),
@@ -58,10 +67,27 @@ jest.mock('firebase/storage', () => ({
   ref: jest.fn(() => mockStorageRef),
   uploadBytes: jest.fn(),
   getDownloadURL: jest.fn(),
+  deleteObject: mockDeleteObject,
 }));
 
 describe('Dashboard', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Setup mocks before each test
+    mockGetFunctions.mockReturnValue({});
+    const mockAnalyzeMealFn = jest.fn().mockResolvedValue({ data: {} });
+    mockHttpsCallable.mockReturnValue(mockAnalyzeMealFn);
+    mockUploadBytes.mockResolvedValue(undefined);
+    mockGetDownloadURL.mockResolvedValue('https://example.com/image.jpg');
+    
+    // Setup Firebase module mocks
+    jest.mocked(require('firebase/functions').getFunctions).mockImplementation(mockGetFunctions);
+    jest.mocked(require('firebase/functions').httpsCallable).mockImplementation(mockHttpsCallable);
+    jest.mocked(require('firebase/storage').uploadBytes).mockImplementation(mockUploadBytes);
+    jest.mocked(require('firebase/storage').getDownloadURL).mockImplementation(mockGetDownloadURL);
+    jest.mocked(require('firebase/storage').deleteObject).mockImplementation(mockDeleteObject);
+    jest.mocked(require('../utils/imageConversion').convertImageToJpeg).mockResolvedValue(new Blob());
     mockUseDailyTotals.mockReturnValue({
       totals: {
         calories: 1500,
@@ -510,13 +536,13 @@ describe('Dashboard', () => {
           expect.anything(),
           'users/test-user/entries/test-image.jpg'
         );
-        expect(mockStorageRef.delete).toHaveBeenCalled();
+        expect(require('firebase/storage').deleteObject).toHaveBeenCalled();
       });
     });
 
     it('should still delete meal document even if image deletion fails', async () => {
       // Setup storage deletion to fail
-      mockStorageRef.delete.mockRejectedValue(new Error('Storage deletion failed'));
+      require('firebase/storage').deleteObject.mockRejectedValue(new Error('Storage deletion failed'));
 
       const mockMealWithImage = {
         id: 'meal-with-failing-image',
@@ -552,7 +578,7 @@ describe('Dashboard', () => {
         );
 
         // Verify storage deletion was attempted
-        expect(mockStorageRef.delete).toHaveBeenCalled();
+        expect(require('firebase/storage').deleteObject).toHaveBeenCalled();
       });
     });
 
@@ -595,8 +621,152 @@ describe('Dashboard', () => {
         expect(deleteDoc).toHaveBeenCalled();
 
         // Verify storage deletion was NOT attempted since there's no image
-        expect(mockStorageRef.delete).not.toHaveBeenCalled();
+        expect(require('firebase/storage').deleteObject).not.toHaveBeenCalled();
       });
     });
+  });
+
+  it('should show natural language modal after photo upload and analysis', async () => {
+    // Mock successful photo upload and analysis
+    const mockAnalysisResult = {
+      result: {
+        title: 'Grilled Chicken',
+        calories: 300,
+        protein_g: 30,
+        fat_g: 10,
+        carbs_g: 5
+      },
+      reasoning: 'Analysis of grilled chicken'
+    };
+    
+    // Reset and setup the specific mock for this test
+    const mockAnalyzeMealFn = jest.fn().mockResolvedValue({ data: mockAnalysisResult });
+    mockHttpsCallable.mockReturnValue(mockAnalyzeMealFn);
+
+    render(<Dashboard />);
+    
+    const photoButton = screen.getByTitle('Take Photo');
+    fireEvent.click(photoButton);
+    
+    const fileInput = screen.getByTestId('file-input');
+    const file = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    
+    // Wait for photo analysis to complete and natural language modal to appear
+    await waitFor(() => {
+      expect(screen.getByText('Add More Details')).toBeInTheDocument();
+    });
+    
+    // Check for the specific placeholder text
+    const textarea = screen.getByPlaceholderText('I ate half of what\'s in the photo');
+    expect(textarea).toBeInTheDocument();
+    
+    // Check the modal content
+    expect(screen.getByText(/Is there anything else you'd like to add/)).toBeInTheDocument();
+  });
+
+  it('should handle combined photo and natural language analysis', async () => {
+    // Mock photo analysis
+    const mockPhotoAnalysis = {
+      result: {
+        title: 'Grilled Chicken',
+        calories: 300,
+        protein_g: 30,
+        fat_g: 10,
+        carbs_g: 5
+      },
+      reasoning: 'Analysis of grilled chicken'
+    };
+    
+    // Mock natural language analysis
+    const mockNaturalLanguageAnalysis = {
+      result: {
+        title: 'Half Grilled Chicken',
+        calories: 150,
+        protein_g: 15,
+        fat_g: 5,
+        carbs_g: 2.5
+      },
+      reasoning: 'Adjusted analysis for half portion'
+    };
+    
+    // Setup mocks for both calls
+    const mockAnalyzeMealFn = jest.fn().mockResolvedValue({ data: mockPhotoAnalysis });
+    const mockAnalyzeNaturalLanguageFn = jest.fn().mockResolvedValue({ data: mockNaturalLanguageAnalysis });
+    
+    mockHttpsCallable
+      .mockReturnValueOnce(mockAnalyzeMealFn)  // Photo analysis
+      .mockReturnValueOnce(mockAnalyzeNaturalLanguageFn);  // Natural language analysis
+
+    render(<Dashboard />);
+    
+    // Upload photo
+    const photoButton = screen.getByTitle('Take Photo');
+    fireEvent.click(photoButton);
+    
+    const fileInput = screen.getByTestId('file-input');
+    const file = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    
+    // Wait for natural language modal to appear
+    await waitFor(() => {
+      expect(screen.getByText('Add More Details')).toBeInTheDocument();
+    });
+    
+    // Add natural language description
+    const textarea = screen.getByPlaceholderText('I ate half of what\'s in the photo');
+    fireEvent.change(textarea, { target: { value: 'I ate half of what\'s in the photo' } });
+    
+    // Submit the additional description
+    const analyzeButton = screen.getByRole('button', { name: /🤖 Analyze Meal/ });
+    fireEvent.click(analyzeButton);
+    
+    // Verify the function was called with the correct parameters
+    await waitFor(() => {
+      expect(mockHttpsCallable).toHaveBeenCalledWith('analyzeNaturalLanguageMeal');
+    });
+  });
+
+  it('should enforce 100 word limit in photo followup modal', async () => {
+    // Mock photo analysis
+    const mockPhotoAnalysis = {
+      result: {
+        title: 'Grilled Chicken',
+        calories: 300,
+        protein_g: 30,
+        fat_g: 10,
+        carbs_g: 5
+      },
+      reasoning: 'Analysis of grilled chicken'
+    };
+    
+    mockHttpsCallable.mockResolvedValueOnce({ data: mockPhotoAnalysis });
+    mockUploadBytes.mockResolvedValue(undefined);
+    mockGetDownloadURL.mockResolvedValue('https://example.com/image.jpg');
+
+    render(<Dashboard />);
+    
+    // Upload photo
+    const photoButton = screen.getByTitle('Take Photo');
+    fireEvent.click(photoButton);
+    
+    const fileInput = screen.getByTestId('file-input');
+    const file = new File(['test'], 'test.jpg', { type: 'image/jpeg' });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    
+    // Wait for natural language modal to appear
+    await waitFor(() => {
+      expect(screen.getByText('Add More Details')).toBeInTheDocument();
+    });
+    
+    // Test word limit enforcement
+    const textarea = screen.getByPlaceholderText('I ate half of what\'s in the photo');
+    
+    // Test 101 words (should be truncated to 100)
+    const over100Words = Array(101).fill('word').join(' ');
+    const exactly100Words = Array(100).fill('word').join(' ');
+    
+    fireEvent.change(textarea, { target: { value: over100Words } });
+    expect(textarea).toHaveValue(exactly100Words);
   });
 }); 

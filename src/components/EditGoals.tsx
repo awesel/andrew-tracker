@@ -28,9 +28,9 @@ export function EditGoals() {
     carbs: '',
   });
 
-  // Initialize form with existing goals
+  // Initialize form with existing goals only once to avoid infinite update loops
   useEffect(() => {
-    if (userData?.dailyGoals) {
+    if (userData?.dailyGoals && goals.calories === '') {
       setGoals({
         calories: userData.dailyGoals.calories.toString(),
         protein: userData.dailyGoals.protein.toString(),
@@ -38,6 +38,9 @@ export function EditGoals() {
         carbs: userData.dailyGoals.carbs.toString(),
       });
     }
+    // We deliberately exclude `goals` from dependency list to ensure this runs
+    // only when `userData` first becomes available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData]);
 
   const handlePresetSelect = (presetName: string) => {

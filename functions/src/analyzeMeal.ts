@@ -3,14 +3,13 @@ import * as functions from 'firebase-functions';
 import OpenAI from 'openai';
 import { checkAndIncrementUsage } from './index';
 
-
-
 // Nutrition analysis callable Cloud Function.
 export const analyzeMeal = onCall(
   {
     region: 'us-central1',
     maxInstances: 10,
     timeoutSeconds: 30,
+    secrets: ['OPENAI_KEY'],
   },
   async (request: any) => {
     const { data, auth } = request;
@@ -33,17 +32,37 @@ export const analyzeMeal = onCall(
       throw new functions.https.HttpsError('invalid-argument', 'The function must be called with an "imageUrl" argument.');
     }
 
-    // Use the OpenAI API key from Firebase Functions config
-    const apiKey = functions.config().openai?.key;
+    // Use environment variables (Firebase v2 approach)
+    const apiKey = process.env.OPENAI_KEY;
     if (!apiKey) {
-      throw new functions.https.HttpsError('internal', 'OpenAI API key not configured in Firebase Functions.');
+      // Fallback to legacy config for backwards compatibility
+      const legacyKey = functions.config().openai?.key;
+      if (!legacyKey) {
+        throw new functions.https.HttpsError('internal', 'OpenAI API key not configured in Firebase Functions.');
+      }
+      
+      // Use legacy key
+      const openai = new OpenAI({ apiKey: legacyKey });
+      return await processImageWithOpenAI(openai, imageUrl);
     }
 
-    // Instantiate the OpenAI client with the universal key
-    const openai = new OpenAI({ apiKey });
+    try {
+      // Instantiate the OpenAI client with the secret key
+      const openai = new OpenAI({ apiKey });
+      return await processImageWithOpenAI(openai, imageUrl);
+    } catch (openaiError: any) {
+      console.error('OpenAI API error:', openaiError);
+      if (openaiError instanceof functions.https.HttpsError) {
+        throw openaiError;
+      }
+      throw new functions.https.HttpsError('internal', 'OpenAI API error: ' + (openaiError.message || 'Unknown error'));
+    }
+  }
+);
 
-    // System prompt that enforces chain-of-thought reasoning **and** a descriptive, non-generic title.
-    const systemPrompt = `You are a board-certified nutritionist.
+async function processImageWithOpenAI(openai: any, imageUrl: string) {
+  // System prompt that enforces chain-of-thought reasoning **and** a descriptive, non-generic title.
+  const systemPrompt = `You are a board-certified nutritionist.
 
 When asked to analyse a meal photo you MUST:
 1. List the foods you see and estimate portion size.
@@ -51,49 +70,47 @@ When asked to analyse a meal photo you MUST:
 3. Produce a very short, descriptive title (≤ 6 words) that uses the most prominent foods *by name* (e.g. "Avocado Toast & Latte").
    • Do NOT use generic words like "meal", "food", "dish", "plate" on their own.
    • At least one concrete food word must appear.
-4. Return ONLY valid JSON of the exact form:Uncaught ReferenceError: process is not defined
-    at firebase.ts:8:92
+4. Return ONLY valid JSON of the exact form:
    {"reasoning": "…", "result": {"title": "…", "calories": <number>, "protein_g": <number>, "fat_g": <number>, "carbs_g": <number>}}
 
 Think step-by-step inside the reasoning field, then output the final numbers rounded realistically.`;
 
-    // Call the multimodal GPT-4o vision model.
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Here is the meal photo to analyse.' },
-            { type: 'image_url', image_url: { url: imageUrl } },
-          ],
-        },
-      ],
-      // Force the model to return strict JSON so we can parse deterministically.
-      response_format: { type: 'json_object' },
-    });
+  // Call the multimodal GPT-4o vision model.
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Here is the meal photo to analyse.' },
+          { type: 'image_url', image_url: { url: imageUrl } },
+        ],
+      },
+    ],
+    // Force the model to return strict JSON so we can parse deterministically.
+    response_format: { type: 'json_object' },
+  });
 
-    try {
-      if (!completion.choices || completion.choices.length === 0) {
-        throw new functions.https.HttpsError('internal', 'OpenAI returned no response choices.');
-      }
-      
-      const content = completion.choices[0].message.content;
-      if (!content) {
-        throw new functions.https.HttpsError('internal', 'OpenAI returned empty content.');
-      }
-      const parsedResponse = JSON.parse(content);
-      // Return the complete response (reasoning + result) for the frontend to use
-      return parsedResponse;
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to parse OpenAI response:', e, completion.choices[0].message.content);
-      // If it's already an HttpsError, re-throw it
-      if (e instanceof functions.https.HttpsError) {
-        throw e;
-      }
-      throw new functions.https.HttpsError('internal', 'Failed to parse OpenAI response.');
+  try {
+    if (!completion.choices || completion.choices.length === 0) {
+      throw new functions.https.HttpsError('internal', 'OpenAI returned no response choices.');
     }
+    
+    const content = completion.choices[0].message.content;
+    if (!content) {
+      throw new functions.https.HttpsError('internal', 'OpenAI returned empty content.');
+    }
+    const parsedResponse = JSON.parse(content);
+    // Return the complete response (reasoning + result) for the frontend to use
+    return parsedResponse;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('Failed to parse OpenAI response:', e, completion.choices[0].message.content);
+    // If it's already an HttpsError, re-throw it
+    if (e instanceof functions.https.HttpsError) {
+      throw e;
+    }
+    throw new functions.https.HttpsError('internal', 'Failed to parse OpenAI response.');
   }
-); 
+} 

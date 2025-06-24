@@ -98,11 +98,17 @@ async function processWithOpenAI(openai: any, description: string): Promise<Natu
   // System prompt enforcing descriptive titles and strict JSON output.
   const systemPrompt = `You are a board-certified nutritionist.
 
-Analyse a meal described by the user.
-1. Identify foods and estimate portion size.
-2. Estimate per-food macros then total calories, protein_g, fat_g, carbs_g.
-3. Create a concise title (≤ 6 words) that mentions the key foods (e.g. "Chicken Burrito & Salsa") without generic words like "meal" or "food".
-4. Respond with ONLY valid JSON:
+Analyse a meal described by the user. The description may include:
+- Direct meal description (e.g., "I had grilled chicken and rice")
+- Photo analysis context followed by user adjustments (e.g., "Based on photo analysis: [analysis details]. I ate half of what's in the photo")
+- Portion adjustments like "I ate half of what's in the photo"
+
+Instructions:
+1. If photo context is provided, use it as baseline nutrition information
+2. Apply any user-specified adjustments (portion size, cooking method changes, etc.)
+3. If user says "I ate half of what's in the photo" or similar, adjust all nutrition values proportionally
+4. Create a concise title (≤ 6 words) that mentions the key foods and any significant adjustments
+5. Respond with ONLY valid JSON:
    {"reasoning": "…", "result": {"title": "…", "calories": <number>, "protein_g": <number>, "fat_g": <number>, "carbs_g": <number>}}
 
 Think step-by-step in the reasoning field and round calories to whole numbers and macros to 1 decimal place.`;

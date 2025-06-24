@@ -13,69 +13,88 @@ jest.mock('openai', () => {
 });
 
 // Mock Firebase Admin
-const mockGetDoc = jest.fn();
-const mockDocRef = jest.fn(() => ({ get: mockGetDoc }));
-
 jest.mock('firebase-admin/app', () => ({
   initializeApp: jest.fn()
 }));
 
 jest.mock('firebase-admin/firestore', () => ({
-  getFirestore: jest.fn(() => ({
-    doc: mockDocRef
-  }))
+  getFirestore: jest.fn()
+}));
+
+// Mock checkAndIncrementUsage
+const mockCheckAndIncrementUsage = jest.fn();
+jest.mock('./src/index', () => ({
+  checkAndIncrementUsage: mockCheckAndIncrementUsage
+}));
+
+// Mock Firebase Functions config
+import * as functions from 'firebase-functions';
+jest.mock('firebase-functions', () => ({
+  ...jest.requireActual('firebase-functions'),
+  config: jest.fn()
 }));
 
 // Import the function after mocking
 import { analyzeMeal } from './src/analyzeMeal';
-import * as functions from 'firebase-functions';
+import functionsTest from 'firebase-functions-test';
+
+const test = functionsTest();
 
 describe('analyzeMeal Cloud Function', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCheckAndIncrementUsage.mockResolvedValue(true);
     // Reset Firebase Functions config mock
-    (functions.config as jest.Mock) = jest.fn().mockReturnValue({});
+    (functions.config as jest.Mock).mockReturnValue({});
+  });
+
+  afterAll(() => {
+    test.cleanup();
   });
 
   describe('Authentication', () => {
     it('should throw unauthenticated error when no auth context', async () => {
-      const call = {
+      const request = { 
         data: { imageUrl: 'https://example.com/image.jpg' },
         auth: null
       };
 
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('The function must be called while authenticated.');
+      const wrapped = test.wrap(analyzeMeal);
+      await expect(wrapped(request as any)).rejects.toThrow('The function must be called while authenticated.');
     });
   });
 
   describe('Input validation', () => {
     it('should throw invalid-argument error when imageUrl is missing', async () => {
-      const call = {
+      const request = {
         data: {},
         auth: { uid: 'test-user' }
       };
 
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('The function must be called with an "imageUrl" argument.');
+      const wrapped = test.wrap(analyzeMeal);
+      await expect(wrapped(request as any)).rejects.toThrow('The function must be called with an "imageUrl" argument.');
     });
 
     it('should throw invalid-argument error when imageUrl is empty', async () => {
-      const call = {
+      const request = {
         data: { imageUrl: '' },
         auth: { uid: 'test-user' }
       };
 
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('The function must be called with an "imageUrl" argument.');
+      const wrapped = test.wrap(analyzeMeal);
+      await expect(wrapped(request as any)).rejects.toThrow('The function must be called with an "imageUrl" argument.');
     });
   });
 
   describe('Environment configuration', () => {
     it('should throw internal error when OpenAI API key is not configured', async () => {
-      const call = {
+      const request = {
         data: { imageUrl: 'https://example.com/image.jpg' },
         auth: { uid: 'test-user' }
       };
 
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('OpenAI API key not configured in Firebase Functions.');
+      const wrapped = test.wrap(analyzeMeal);
+      await expect(wrapped(request as any)).rejects.toThrow('OpenAI API key not configured');
     });
 
     it('should use OpenAI API key from Firebase Functions config when configured', async () => {
@@ -83,14 +102,15 @@ describe('analyzeMeal Cloud Function', () => {
         openai: { key: 'test-key' }
       });
 
-      const call = {
+      const request = {
         data: { imageUrl: 'https://example.com/image.jpg' },
         auth: { uid: 'test-user' }
       };
 
+      const wrapped = test.wrap(analyzeMeal);
       // This will likely fail due to OpenAI API call, but we just want to verify it gets past the API key check
       try {
-        await analyzeMeal.run(call as any);
+        await wrapped(request as any);
       } catch (error: any) {
         // Ensure the error is not about the API key configuration
         expect(error.message).not.toContain('OpenAI API key not configured');
@@ -98,24 +118,10 @@ describe('analyzeMeal Cloud Function', () => {
     });
   });
 
-  describe('API key validation', () => {
-    it('should throw failed-precondition error when user has no API key', async () => {
-      mockGetDoc.mockResolvedValue({ data: () => ({}) });
-
-      const call = {
-        data: { imageUrl: 'https://example.com/image.jpg' },
-        auth: { uid: 'test-user' }
-      };
-
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('Missing OpenAI API key. Please add it during onboarding.');
-      expect(mockDocRef).toHaveBeenCalledWith('users/test-user');
-    });
-  });
-
   describe('OpenAI integration', () => {
     beforeEach(() => {
-      mockGetDoc.mockResolvedValue({ 
-        data: () => ({ apiKey: 'test-api-key' }) 
+      (functions.config as jest.Mock).mockReturnValue({
+        openai: { key: 'test-api-key' }
       });
     });
 
@@ -138,12 +144,13 @@ describe('analyzeMeal Cloud Function', () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      const call = {
+      const request = {
         data: { imageUrl: 'https://example.com/image.jpg' },
         auth: { uid: 'test-user' }
       };
 
-      const result = await analyzeMeal.run(call as any);
+      const wrapped = test.wrap(analyzeMeal);
+      const result = await wrapped(request as any);
 
       expect(result).toEqual({
         reasoning: "I can see a grilled chicken breast (approximately 4 oz) with steamed broccoli and a side of brown rice. The chicken appears to be seasoned but not breaded.",
@@ -176,12 +183,13 @@ describe('analyzeMeal Cloud Function', () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      const call = {
+      const request = {
         data: { imageUrl: 'https://example.com/image.jpg' },
         auth: { uid: 'test-user' }
       };
 
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('OpenAI returned empty content.');
+      const wrapped = test.wrap(analyzeMeal);
+      await expect(wrapped(request as any)).rejects.toThrow('OpenAI returned empty content.');
     });
 
     it('should throw internal error when OpenAI returns invalid JSON', async () => {
@@ -194,23 +202,25 @@ describe('analyzeMeal Cloud Function', () => {
       };
       mockCreate.mockResolvedValue(mockResponse);
 
-      const call = {
+      const request = {
         data: { imageUrl: 'https://example.com/image.jpg' },
         auth: { uid: 'test-user' }
       };
 
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('Failed to parse OpenAI response.');
+      const wrapped = test.wrap(analyzeMeal);
+      await expect(wrapped(request as any)).rejects.toThrow('Failed to parse OpenAI response.');
     });
 
     it('should handle OpenAI API errors gracefully', async () => {
       mockCreate.mockRejectedValue(new Error('OpenAI API Error'));
 
-      const call = {
+      const request = {
         data: { imageUrl: 'https://example.com/image.jpg' },
         auth: { uid: 'test-user' }
       };
 
-      await expect(analyzeMeal.run(call as any)).rejects.toThrow('OpenAI API Error');
+      const wrapped = test.wrap(analyzeMeal);
+      await expect(wrapped(request as any)).rejects.toThrow('OpenAI API Error');
     });
   });
 }); 

@@ -67,6 +67,9 @@ describe('analyzeNaturalLanguageMeal', () => {
 
     // Mock successful usage check
     mockCheckAndIncrementUsage.mockResolvedValue(true);
+    
+    // Set a default OpenAI API key for tests
+    process.env.OPENAI_KEY = 'test-api-key';
 
     mockRequest = {
       data: {

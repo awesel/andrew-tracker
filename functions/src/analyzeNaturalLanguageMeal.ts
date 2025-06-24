@@ -69,14 +69,6 @@ export const analyzeNaturalLanguageMeal = onCall(
     console.log('Environment check - OPENAI_KEY exists:', !!apiKey);
     if (!apiKey) {
       console.error('OpenAI API key not configured in environment variables');
-      // Fallback to legacy config for now
-      const legacyKey = functions.config().openai?.key;
-      console.log('Fallback to legacy config - key exists:', !!legacyKey);
-      if (legacyKey) {
-        console.log('Using legacy config key');
-        const openai = new OpenAI({ apiKey: legacyKey });
-        return await processWithOpenAI(openai, description);
-      }
       throw new functions.https.HttpsError('internal', 'OpenAI API key not configured in Firebase Functions.');
     }
 

@@ -1,6 +1,5 @@
 import { onCall } from 'firebase-functions/v2/https';
 import * as functions from 'firebase-functions';
-import { getFirestore } from 'firebase-admin/firestore';
 import OpenAI from 'openai';
 
 interface NutritionResult {

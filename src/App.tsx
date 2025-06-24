@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { inject } from '@vercel/analytics';
 import { Auth } from './Auth';
 import { Onboarding } from './components/Onboarding';
 import { EditGoals } from './components/EditGoals';
@@ -7,6 +8,9 @@ import { Dashboard } from './components/Dashboard';
 import { useAuthState } from './hooks/useAuthState';
 import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
+
+// Initialize Vercel Analytics
+inject();
 
 function LoadingScreen() {
   return (

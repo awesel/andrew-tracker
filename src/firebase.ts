@@ -9,8 +9,11 @@ import { getFirestore } from 'firebase/firestore';
 
 const getViteEnv = (): Record<string, string | undefined> | undefined => {
   try {
+    // In a Vite environment, import.meta.env should be available
+    // In Jest/Node environments, this will throw and fall back to process.env
     // eslint-disable-next-line no-new-func
-    return new Function('return typeof import !== "undefined" ? import.meta.env : undefined')();
+    const result = new Function('return import.meta.env')();
+    return result as Record<string, string | undefined>;
   } catch {
     return undefined;
   }

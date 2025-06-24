@@ -2,18 +2,22 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Resolve environment variables in a way that works for both the browser (Vite)
-// and Node/Jest without throwing ReferenceErrors or TS build errors.
-// 1. Prefer `import.meta.env` (present in Vite-built code and during dev-server).
-// 2. Otherwise fall back to `process.env` (tests / Node).
-// 3. Fallback to an empty object.
-//
-// We need the `// @ts-ignore` to suppress TS1343 when compiling with a non-ESNext
-// module target in certain test pipelines.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore – import.meta is only allowed in ESNext modules, but runtime check keeps it safe.
-const env: Record<string, string | undefined> = (typeof import.meta !== 'undefined' ? (import.meta as any).env : undefined)
-  || (typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>) : {});
+// Safely resolve environment variables in a way that works both in the browser (Vite) and in Node/Jest.
+// We *cannot* reference `import.meta` directly because Jest runs the code through CommonJS which will
+// throw a SyntaxError at parse-time. The `Function` constructor lets us access it dynamically only when
+// the current runtime actually supports it.
+
+const getViteEnv = (): Record<string, string | undefined> | undefined => {
+  try {
+    // eslint-disable-next-line no-new-func
+    return new Function('return typeof import !== "undefined" ? import.meta.env : undefined')();
+  } catch {
+    return undefined;
+  }
+};
+
+const env: Record<string, string | undefined> =
+  getViteEnv() ?? (typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>) : {});
 
 const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY || 'demo-api-key',

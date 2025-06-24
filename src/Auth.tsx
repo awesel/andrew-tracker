@@ -4,6 +4,10 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, googleProvider, db } from './firebase';
 import { useAuthState } from './hooks/useAuthState';
 
+// Explicitly reference React so it is not considered an unused import when building with `noUnusedLocals`.
+// Jest (which still uses the classic JSX runtime) also relies on the default React export being present.
+void React;
+
 export function Auth() {
   const { user, loading } = useAuthState();
   const [isSigningIn, setIsSigningIn] = useState(false);

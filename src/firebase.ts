@@ -19,14 +19,27 @@ const getViteEnv = (): Record<string, string | undefined> | undefined => {
 const env: Record<string, string | undefined> =
   getViteEnv() ?? (typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>) : {});
 
+// Temporary debug version - remove after fixing
+console.log('Raw import.meta.env:', import.meta.env);
+console.log('Specific env vars:', {
+  VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
+  VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+});
+
 const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || 'demo-api-key',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || 'demo-auth-domain',
-  projectId: env.VITE_FIREBASE_PROJECT_ID || 'demo-project-id',
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || 'demo-storage-bucket',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || 'demo-msg-sender',
-  appId: env.VITE_FIREBASE_APP_ID || 'demo-app-id',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-api-key',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'demo-auth-domain',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'demo-project-id',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'demo-storage-bucket',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || 'demo-msg-sender',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || 'demo-app-id',
 };
+
+console.log('Final firebaseConfig:', {
+  ...firebaseConfig,
+  apiKey: firebaseConfig.apiKey ? '***' : 'MISSING'
+});
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

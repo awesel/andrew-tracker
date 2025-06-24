@@ -1,6 +1,7 @@
 import { onCall } from 'firebase-functions/v2/https';
 import * as functions from 'firebase-functions';
 import OpenAI from 'openai';
+import { checkAndIncrementUsage } from './index';
 
 interface NutritionResult {
   title: string;
@@ -16,8 +17,6 @@ interface NaturalLanguageMealResponse {
   reasoning: string;
 }
 
-
-
 // Natural language meal analysis callable Cloud Function.
 export const analyzeNaturalLanguageMeal = onCall(
   {
@@ -30,6 +29,15 @@ export const analyzeNaturalLanguageMeal = onCall(
     // Ensure the user is authenticated.
     if (!auth) {
       throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+
+    // Check usage limit
+    const hasRemainingUsage = await checkAndIncrementUsage(auth.uid);
+    if (!hasRemainingUsage) {
+      throw new functions.https.HttpsError(
+        'resource-exhausted',
+        'Daily API limit reached. Please use manual entry for additional meals today.'
+      );
     }
 
     const { description } = data as { description?: string };

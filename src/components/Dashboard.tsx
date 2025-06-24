@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useDailyTotals } from '../hooks/useDailyTotals';
 import { useDailyEntries } from '../hooks/useDailyEntries';
 import type { MealEntry } from '../hooks/useDailyEntries';
@@ -459,6 +459,45 @@ function MealCard({
   );
 }
 
+function RemainingRequests() {
+  const { user } = useAuthState();
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const functions = getFunctions(firebaseApp);
+    const getRemainingRequestsFn = httpsCallable(functions, 'getRemainingRequests');
+
+    const fetchRemaining = async () => {
+      try {
+        const result = await getRemainingRequestsFn();
+        const data = result.data as any;
+        setRemaining(data.remaining);
+        setTotal(data.total);
+      } catch (error) {
+        console.error('Error fetching remaining requests:', error);
+      }
+    };
+
+    fetchRemaining();
+  }, [user]);
+
+  if (remaining === null || total === null) return null;
+
+  return (
+    <div className="text-sm text-gray-600 flex items-center gap-2">
+      <span>AI Analysis: {remaining}/{total} remaining today</span>
+      {remaining === 0 && (
+        <span className="text-yellow-600">
+          ⚠️ Limit reached, use manual entry
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function Dashboard() {
   // Date selection state
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
@@ -724,29 +763,39 @@ export function Dashboard() {
       
       const functions = getFunctions(firebaseApp);
       const analyzeNaturalLanguageMealFn = httpsCallable(functions, 'analyzeNaturalLanguageMeal');
-      const result = await analyzeNaturalLanguageMealFn({ description: naturalLanguageDescription });
-
-      const response = result.data as any;
-      const { reasoning = '', result: nutrition = {} } = response;
-      const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
-
-      const mealName = title || altName;
-
-      await addDoc(collection(db, 'users', user.uid, 'entries'), {
-        ...(mealName ? { name: mealName } : {}),
-        calories,
-        protein_g,
-        fat_g,
-        carbs_g,
-        reasoning,
-        createdAt: serverTimestamp(),
-      });
       
-      setNaturalLanguageDescription('');
-      setShowNaturalLanguageModal(false);
+      try {
+        const result = await analyzeNaturalLanguageMealFn({ description: naturalLanguageDescription });
+        const response = result.data as any;
+        const { reasoning = '', result: nutrition = {} } = response;
+        const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
+
+        const mealName = title || altName;
+
+        await addDoc(collection(db, 'users', user.uid, 'entries'), {
+          ...(mealName ? { name: mealName } : {}),
+          calories,
+          protein_g,
+          fat_g,
+          carbs_g,
+          reasoning,
+          createdAt: serverTimestamp(),
+        });
+        
+        setNaturalLanguageDescription('');
+        setShowNaturalLanguageModal(false);
+      } catch (functionError: any) {
+        if (functionError?.code === 'resource-exhausted') {
+          alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
+          setShowNaturalLanguageModal(false);
+          setShowManualMealModal(true);
+        } else {
+          throw functionError; // Re-throw other errors to be caught by outer catch
+        }
+      }
     } catch (error) {
       console.error('Error processing natural language meal:', error);
-      alert('Failed to process meal description. Please try again.');
+      alert('Failed to process meal description. Please try again or use manual entry.');
     } finally {
       setIsProcessingNaturalLanguage(false);
     }
@@ -786,39 +835,44 @@ export function Dashboard() {
 
       const functions = getFunctions(firebaseApp);
       const analyzeMealFn = httpsCallable(functions, 'analyzeMeal');
-      const result = await analyzeMealFn({ imageUrl });
-
-      const response = result.data as any;
-      const { reasoning = '', result: nutrition = {} } = response;
-      const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
-
-      const mealName = title || altName;
-
-      await addDoc(collection(db, 'users', user.uid, 'entries'), {
-        ...(mealName ? { name: mealName } : {}),
-        calories,
-        protein_g,
-        fat_g,
-        carbs_g,
-        reasoning,
-        imageUrl,
-        createdAt: serverTimestamp(),
-      });
-    } catch (err) {
-      console.error('Error adding meal', err instanceof Error ? err.message : 'Unknown error');
       
-      const error = err as any; // Type assertion for error handling
-      if (error?.code === 'storage/unauthorized' || error?.code === 'storage/unauthenticated') {
-        window.alert('Authentication error. Please sign in again.');
-      } else if (error?.message?.includes('404') || error?.message?.includes('preflight')) {
-        window.alert('Firebase Storage is not enabled. Please enable it in the Firebase Console.');
-      } else if (error?.message?.includes('Failed to get canvas context') || error?.message?.includes('Failed to convert image')) {
-        window.alert('Failed to process image. Please try selecting a different image.');
-      } else if (error?.message?.includes('Failed to convert HEIC file')) {
-        window.alert('Failed to convert HEIC image. Please try converting the image to JPEG on your device first.');
-      } else {
-        window.alert('Failed to analyze meal. Please try again.');
+      try {
+        const result = await analyzeMealFn({ imageUrl });
+        const response = result.data as any;
+        const { reasoning = '', result: nutrition = {} } = response;
+        const { title, name: altName, calories = 0, protein_g = 0, fat_g = 0, carbs_g = 0 } = nutrition;
+
+        const mealName = title || altName;
+
+        await addDoc(collection(db, 'users', user.uid, 'entries'), {
+          ...(mealName ? { name: mealName } : {}),
+          calories,
+          protein_g,
+          fat_g,
+          carbs_g,
+          reasoning,
+          imageUrl,
+          createdAt: serverTimestamp(),
+        });
+      } catch (functionError: any) {
+        // Delete the uploaded image since we couldn't analyze it
+        try {
+          const imageRef = ref(storage, path);
+          await imageRef.delete();
+        } catch (deleteError) {
+          console.warn('Failed to delete image after analysis error:', deleteError);
+        }
+
+        if (functionError?.code === 'resource-exhausted') {
+          alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
+          setShowManualMealModal(true);
+        } else {
+          throw functionError; // Re-throw other errors to be caught by outer catch
+        }
       }
+    } catch (error) {
+      console.error('Error processing meal image:', error);
+      alert('Failed to process meal image. Please try again or use manual entry.');
     }
   };
 
@@ -875,8 +929,11 @@ export function Dashboard() {
           <h2 className="text-lg font-semibold text-gray-900">
             {isSelectedDateToday ? "Today's Meals" : `${selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} Meals`}
           </h2>
-          <div className="text-sm text-gray-600">
-            {entries.length} meal{entries.length !== 1 ? 's' : ''}
+          <div className="flex items-center gap-4">
+            <RemainingRequests />
+            <div className="text-sm text-gray-600">
+              {entries.length} meal{entries.length !== 1 ? 's' : ''}
+            </div>
           </div>
         </div>
 

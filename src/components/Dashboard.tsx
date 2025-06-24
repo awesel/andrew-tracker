@@ -874,11 +874,11 @@ export function Dashboard() {
       {/* Floating Action Buttons */}
       <div className="fab-container">
         <button
-          onClick={() => setShowManualMealModal(true)}
-          className="fab fab-secondary"
-          title="Add Manual Meal"
+          onClick={handleAddMeal}
+          className="fab fab-primary"
+          title="Take Photo"
         >
-          ✏️
+          📷
         </button>
 
         <button
@@ -890,11 +890,11 @@ export function Dashboard() {
         </button>
 
         <button
-          onClick={handleAddMeal}
-          className="fab fab-primary"
-          title="Take Photo"
+          onClick={() => setShowManualMealModal(true)}
+          className="fab fab-secondary"
+          title="Add Manual Meal"
         >
-          📷
+          ✏️
         </button>
       </div>
 

@@ -13,8 +13,6 @@ export const analyzeMeal = onCall(
     secrets: ['OPENAI_KEY'],
   },
   async (request: any) => {
-    console.log('analyzeMeal called with request:', { auth: !!request.auth, dataKeys: Object.keys(request.data || {}) });
-
     const { data, auth } = request;
     // Ensure the user is authenticated.
     if (!auth) {
@@ -26,7 +24,6 @@ export const analyzeMeal = onCall(
     try {
       const hasRemainingUsage = await checkAndIncrementUsage(auth.uid);
       if (!hasRemainingUsage) {
-        console.log('Daily limit exceeded for user:', auth.uid);
         throw new functions.https.HttpsError(
           'resource-exhausted',
           'Daily API limit reached. Please use manual entry for additional meals today.'
@@ -38,14 +35,6 @@ export const analyzeMeal = onCall(
     }
 
     const { imageUrl, description } = data as { imageUrl?: string; description?: string };
-    console.log('🔍 analyzeMeal received data:', { 
-      hasImageUrl: !!imageUrl, 
-      imageUrlLength: imageUrl?.length || 0,
-      imageUrlPreview: imageUrl?.substring(0, 100) + '...',
-      hasDescription: !!description,
-      description: description,
-      descriptionLength: description?.length || 0
-    });
     
     if (!imageUrl) {
       console.error('Missing or empty imageUrl');
@@ -54,7 +43,6 @@ export const analyzeMeal = onCall(
 
     // Use environment variables (Firebase v2 approach)
     const apiKey = process.env.OPENAI_KEY;
-    console.log('Environment check - OPENAI_KEY exists:', !!apiKey);
     if (!apiKey) {
       console.error('OpenAI API key not configured in environment variables');
       throw new functions.https.HttpsError('internal', 'OpenAI API key not configured in Firebase Functions.');
@@ -126,7 +114,6 @@ async function retryWithBackoff<T>(
       
       // Wait with exponential backoff
       const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`🔄 Retry attempt ${attempt + 1}/${maxRetries} failed, retrying in ${delay}ms:`, error.message);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -150,21 +137,12 @@ When asked to analyse a meal photo you MUST:
 
 Think step-by-step inside the reasoning field, acknowledging any user instructions you're following, then output the final numbers rounded realistically.`;
 
-  console.log('Calling OpenAI with imageUrl length:', imageUrl.length);
-
   // Build the user message with optional description
   const trimmedDescription = description?.trim() || '';
   const hasDescription = trimmedDescription.length > 0;
   const textContent = hasDescription 
     ? `Here is the meal photo to analyze. IMPORTANT USER INSTRUCTIONS: ${trimmedDescription}`
     : 'Here is the meal photo to analyze.';
-    
-  console.log('🔍 OpenAI prompt details:', {
-    hasDescription,
-    description: description,
-    textContent,
-    textContentLength: textContent.length
-  });
 
   // Call the multimodal GPT-4o vision model.
   const completion = await retryWithBackoff(async () => {
@@ -184,8 +162,6 @@ Think step-by-step inside the reasoning field, acknowledging any user instructio
       response_format: { type: 'json_object' },
     });
   });
-
-  console.log('OpenAI response received');
 
   if (!completion.choices || completion.choices.length === 0) {
     console.error('OpenAI returned no response choices');
@@ -223,7 +199,6 @@ Think step-by-step inside the reasoning field, acknowledging any user instructio
     throw new functions.https.HttpsError('internal', 'Invalid nutrition data format from OpenAI.');
   }
 
-  console.log('Successfully processed meal image analysis');
   // Return the complete response (reasoning + result) for the frontend to use
   return parsedResponse;
 } 

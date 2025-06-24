@@ -27,8 +27,6 @@ export const analyzeNaturalLanguageMeal = onCall(
     secrets: ['OPENAI_KEY'],
   },
   async (request: any) => {
-    console.log('analyzeNaturalLanguageMeal called with request:', { auth: !!request.auth, dataKeys: Object.keys(request.data || {}) });
-
     const { data, auth } = request;
     // Ensure the user is authenticated.
     if (!auth) {
@@ -40,7 +38,6 @@ export const analyzeNaturalLanguageMeal = onCall(
     try {
       const hasRemainingUsage = await checkAndIncrementUsage(auth.uid);
       if (!hasRemainingUsage) {
-        console.log('Daily limit exceeded for user:', auth.uid);
         throw new functions.https.HttpsError(
           'resource-exhausted',
           'Daily API limit reached. Please use manual entry for additional meals today.'
@@ -66,7 +63,6 @@ export const analyzeNaturalLanguageMeal = onCall(
 
     // Use environment variables (Firebase v2 approach)
     const apiKey = process.env.OPENAI_KEY;
-    console.log('Environment check - OPENAI_KEY exists:', !!apiKey);
     if (!apiKey) {
       console.error('OpenAI API key not configured in environment variables');
       throw new functions.https.HttpsError('internal', 'OpenAI API key not configured in Firebase Functions.');
@@ -105,8 +101,6 @@ Instructions:
 
 Think step-by-step in the reasoning field and round calories to whole numbers and macros to 1 decimal place.`;
 
-  console.log('Calling OpenAI with description length:', description.length);
-
   // Call the GPT-4o-mini model.
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -120,8 +114,6 @@ Think step-by-step in the reasoning field and round calories to whole numbers an
     // Force the model to return strict JSON so we can parse deterministically.
     response_format: { type: 'json_object' },
   });
-
-  console.log('OpenAI response received');
 
   if (!completion.choices || completion.choices.length === 0) {
     console.error('OpenAI returned no response choices');
@@ -159,7 +151,6 @@ Think step-by-step in the reasoning field and round calories to whole numbers an
     throw new functions.https.HttpsError('internal', 'Invalid nutrition data format from OpenAI.');
   }
 
-  console.log('Successfully processed meal analysis');
   // Return the complete response (reasoning + result) for the frontend to use
   return parsedResponse as NaturalLanguageMealResponse;
 }

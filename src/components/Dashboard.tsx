@@ -751,9 +751,7 @@ export function Dashboard() {
 
   const handleNaturalLanguageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
-    console.log('🔍 Text input changed:', { newValue, length: newValue.length });
     const truncatedValue = truncateToWordLimit(newValue, MAX_WORDS);
-    console.log('🔍 After truncation:', { truncatedValue, length: truncatedValue.length });
     setNaturalLanguageDescription(truncatedValue);
   };
 
@@ -810,12 +808,6 @@ export function Dashboard() {
         setNaturalLanguageDescription('');
         setShowNaturalLanguageModal(false);
       } catch (functionError: any) {
-        console.error('Function error details:', {
-          code: functionError?.code,
-          message: functionError?.message,
-          details: functionError?.details
-        });
-        
         if (functionError?.code === 'resource-exhausted') {
           alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
           setShowNaturalLanguageModal(false);
@@ -843,14 +835,6 @@ export function Dashboard() {
   const handlePhotoFollowupSave = async () => {
     if (!user || !photoImageUrl) return;
 
-    console.log('🔍 handlePhotoFollowupSave called with:', {
-      photoImageUrl: photoImageUrl?.substring(0, 50) + '...',
-      naturalLanguageDescription,
-      descriptionLength: naturalLanguageDescription.length,
-      trimmedDescription: naturalLanguageDescription.trim(),
-      trimmedLength: naturalLanguageDescription.trim().length
-    });
-
     try {
       setIsProcessingNaturalLanguage(true);
       
@@ -858,11 +842,6 @@ export function Dashboard() {
       const analyzeMealFn = httpsCallable(functions, 'analyzeMeal');
       
       const finalDescription = naturalLanguageDescription.trim() || undefined;
-      console.log('🔍 Calling analyzeMeal with:', {
-        imageUrl: photoImageUrl?.substring(0, 50) + '...',
-        description: finalDescription,
-        hasDescription: !!finalDescription
-      });
       
       try {
         // Call analyzeMeal with both image and optional description
@@ -936,21 +915,11 @@ export function Dashboard() {
     // Skip description and analyze with just the image
     if (!user || !photoImageUrl) return;
 
-    console.log('🔍 handlePhotoFollowupSkip called with:', {
-      photoImageUrl: photoImageUrl?.substring(0, 50) + '...',
-      currentDescription: naturalLanguageDescription,
-      descriptionLength: naturalLanguageDescription.length
-    });
-
     try {
       setIsProcessingNaturalLanguage(true);
       
       const functions = getFunctions(firebaseApp);
       const analyzeMealFn = httpsCallable(functions, 'analyzeMeal');
-      
-      console.log('🔍 Calling analyzeMeal (skip) with only image:', {
-        imageUrl: photoImageUrl?.substring(0, 50) + '...'
-      });
       
       const result = await analyzeMealFn({ imageUrl: photoImageUrl });
       const response = result.data as any;
@@ -1017,10 +986,6 @@ export function Dashboard() {
       const imageUrl = await getDownloadURL(storageRef);
 
       // Store image URL and show input modal immediately (no analysis yet)
-      console.log('🔍 Photo uploaded successfully, showing modal:', {
-        imageUrl: imageUrl.substring(0, 50) + '...',
-        resetDescription: ''
-      });
       setPhotoImageUrl(imageUrl);
       setNaturalLanguageDescription(''); // Reset description
       setShowPhotoFollowupModal(true);
@@ -1357,8 +1322,6 @@ export function Dashboard() {
                   placeholder="e.g., I ate half of what's shown, this includes extra sauce, cooked with olive oil..."
                   rows={3}
                   className="form-textarea"
-                  onFocus={() => console.log('🔍 Textarea focused, current value:', naturalLanguageDescription)}
-                  onBlur={() => console.log('🔍 Textarea blurred, current value:', naturalLanguageDescription)}
                 />
                 <div className="flex justify-between items-center">
                   <div className="form-help text-gray-500">

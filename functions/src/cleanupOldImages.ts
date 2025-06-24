@@ -19,8 +19,6 @@ export const cleanupOldImages = onSchedule(
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - RETENTION_DAYS);
     
-    console.log(`Starting cleanup of images older than ${cutoffDate.toISOString()}`);
-    
     try {
       // Get all entries older than cutoff date
       const usersSnapshot = await db.collection('users').get();
@@ -64,7 +62,6 @@ export const cleanupOldImages = onSchedule(
                   });
                   
                   deletedCount++;
-                  console.log(`Deleted image: ${filePath}`);
                 }
               } catch (error) {
                 console.error(`Error deleting image for entry ${entryDoc.id}:`, error);
@@ -77,8 +74,6 @@ export const cleanupOldImages = onSchedule(
           errorCount++;
         }
       }
-      
-      console.log(`Cleanup completed. Deleted: ${deletedCount} images, Errors: ${errorCount}`);
       
     } catch (error) {
       console.error('Failed to cleanup old images:', error);

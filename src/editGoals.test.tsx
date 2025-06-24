@@ -46,10 +46,10 @@ describe('EditGoals Component', () => {
   it('pre-fills the form with existing goals', () => {
     render(<EditGoals />);
 
-    expect(screen.getByLabelText(/daily calories/i)).toHaveValue('2000');
-    expect(screen.getByLabelText(/protein/i)).toHaveValue('150');
-    expect(screen.getByLabelText(/fat/i)).toHaveValue('70');
-    expect(screen.getByLabelText(/carbs/i)).toHaveValue('250');
+    expect(screen.getByLabelText(/daily calories/i)).toHaveValue(2000);
+    expect(screen.getByLabelText(/protein/i)).toHaveValue(150);
+    expect(screen.getByLabelText(/fat/i)).toHaveValue(70);
+    expect(screen.getByLabelText(/carbs/i)).toHaveValue(250);
   });
 
   it('updates goals and saves to firestore', async () => {

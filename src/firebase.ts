@@ -27,6 +27,13 @@ console.log('Specific env vars:', {
   VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
 });
 
+// Debug comparison between approaches
+console.log('Resolved env via getViteEnv():', {
+  VITE_FIREBASE_API_KEY: env.VITE_FIREBASE_API_KEY,
+  VITE_FIREBASE_AUTH_DOMAIN: env.VITE_FIREBASE_AUTH_DOMAIN,
+  VITE_FIREBASE_PROJECT_ID: env.VITE_FIREBASE_PROJECT_ID,
+});
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'demo-api-key',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'demo-auth-domain',

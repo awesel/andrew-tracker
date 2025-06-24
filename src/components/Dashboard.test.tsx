@@ -207,6 +207,83 @@ describe('Dashboard', () => {
     expect(textarea).toHaveValue('I had a grilled chicken breast with steamed broccoli and brown rice');
   });
 
+  it('should enforce 100 word limit on natural language meal description', async () => {
+    render(<Dashboard />);
+    
+    const naturalLanguageButton = screen.getByTitle('Describe Your Meal');
+    fireEvent.click(naturalLanguageButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Describe Your Meal')).toBeInTheDocument();
+    });
+    
+    const textarea = screen.getByPlaceholderText('e.g., I had grilled chicken breast with steamed broccoli and brown rice');
+    
+    // Test 100 words exactly (should be allowed)
+    const exactly100Words = Array(100).fill('word').join(' ');
+    fireEvent.change(textarea, { target: { value: exactly100Words } });
+    expect(textarea).toHaveValue(exactly100Words);
+    
+    // Test 101 words (should be truncated to 100)
+    const over100Words = Array(101).fill('word').join(' ');
+    fireEvent.change(textarea, { target: { value: over100Words } });
+    expect(textarea).toHaveValue(exactly100Words);
+  });
+
+  it('should show warning when approaching word limit', async () => {
+    render(<Dashboard />);
+    
+    const naturalLanguageButton = screen.getByTitle('Describe Your Meal');
+    fireEvent.click(naturalLanguageButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Describe Your Meal')).toBeInTheDocument();
+    });
+    
+    const textarea = screen.getByPlaceholderText('e.g., I had grilled chicken breast with steamed broccoli and brown rice');
+    
+    // Test 90 words (should show warning)
+    const words90 = Array(90).fill('word').join(' ');
+    fireEvent.change(textarea, { target: { value: words90 } });
+    
+    await waitFor(() => {
+      expect(screen.getByText(/\(10 remaining\)/)).toBeInTheDocument();
+    });
+    
+    // Test 95 words (should show warning)
+    const words95 = Array(95).fill('word').join(' ');
+    fireEvent.change(textarea, { target: { value: words95 } });
+    
+    await waitFor(() => {
+      expect(screen.getByText(/\(5 remaining\)/)).toBeInTheDocument();
+    });
+  });
+
+  it('should truncate pasted content to 100 words', async () => {
+    render(<Dashboard />);
+    
+    const naturalLanguageButton = screen.getByTitle('Describe Your Meal');
+    fireEvent.click(naturalLanguageButton);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Describe Your Meal')).toBeInTheDocument();
+    });
+    
+    const textarea = screen.getByPlaceholderText('e.g., I had grilled chicken breast with steamed broccoli and brown rice');
+    
+    // Simulate pasting 150 words
+    const over100Words = Array(150).fill('word').join(' ');
+    const clipboardData = {
+      getData: () => over100Words,
+    };
+    
+    fireEvent.paste(textarea, { clipboardData });
+    
+    // Should be truncated to exactly 100 words
+    const expected100Words = Array(100).fill('word').join(' ');
+    expect(textarea).toHaveValue(expected100Words);
+  });
+
   describe('Enhanced Macro Widget', () => {
     it('should display enhanced macro rings with proper percentages', () => {
       render(<Dashboard />);

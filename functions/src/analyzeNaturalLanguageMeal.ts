@@ -38,6 +38,12 @@ export const analyzeNaturalLanguageMeal = onCall(
       throw new functions.https.HttpsError('invalid-argument', 'The function must be called with a "description" argument.');
     }
 
+    // Enforce 100 word limit on the server side as well
+    const wordCount = description.trim().split(/\s+/).filter(word => word.length > 0).length;
+    if (wordCount > 100) {
+      throw new functions.https.HttpsError('invalid-argument', 'Meal description cannot exceed 100 words.');
+    }
+
     // Fetch the user-scoped OpenAI API key stored in Firestore.
     const snapshot = await getFirestore()
       .doc(`users/${auth.uid}`)

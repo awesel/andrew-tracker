@@ -495,6 +495,32 @@ export function Dashboard() {
   const [collapsedAnalysis, setCollapsedAnalysis] = useState<{ [key: string]: boolean }>({});
   const [isProcessingNaturalLanguage, setIsProcessingNaturalLanguage] = useState(false);
 
+  // Word count helpers for natural language description
+  const MAX_WORDS = 100;
+  const WARNING_THRESHOLD = 90;
+
+  const countWords = (text: string): number => {
+    return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+  };
+
+  const truncateToWordLimit = (text: string, maxWords: number): string => {
+    const words = text.trim().split(/\s+/).filter(word => word.length > 0);
+    if (words.length <= maxWords) return text;
+    return words.slice(0, maxWords).join(' ');
+  };
+
+  const getWordCount = (): number => {
+    return countWords(naturalLanguageDescription);
+  };
+
+  const isApproachingWordLimit = (): boolean => {
+    return getWordCount() >= WARNING_THRESHOLD;
+  };
+
+  const getRemainingWords = (): number => {
+    return MAX_WORDS - getWordCount();
+  };
+
   const DAILY_GOALS = userData?.dailyGoals ?? FALLBACK_DAILY_GOALS;
 
   const handleSignOut = async () => {
@@ -664,6 +690,29 @@ export function Dashboard() {
     } catch (error) {
       console.error('Error saving manual meal:', error);
       alert('Failed to save meal. Please try again.');
+    }
+  };
+
+  const handleNaturalLanguageChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    const truncatedValue = truncateToWordLimit(newValue, MAX_WORDS);
+    setNaturalLanguageDescription(truncatedValue);
+  };
+
+  const handleNaturalLanguagePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text');
+    const currentText = naturalLanguageDescription;
+    const truncatedPastedText = truncateToWordLimit(pastedText, MAX_WORDS);
+    
+    // If we're at the beginning, just use the truncated paste
+    if (currentText === '') {
+      setNaturalLanguageDescription(truncatedPastedText);
+    } else {
+      // Combine current text with pasted text, then truncate the whole thing
+      const combinedText = currentText + pastedText;
+      const truncatedCombined = truncateToWordLimit(combinedText, MAX_WORDS);
+      setNaturalLanguageDescription(truncatedCombined);
     }
   };
 
@@ -1008,14 +1057,30 @@ export function Dashboard() {
                 <label className="form-label">Tell us what you ate:</label>
                 <textarea
                   value={naturalLanguageDescription}
-                  onChange={(e) => setNaturalLanguageDescription(e.target.value)}
+                  onChange={handleNaturalLanguageChange}
+                  onPaste={handleNaturalLanguagePaste}
                   placeholder="e.g., I had grilled chicken breast with steamed broccoli and brown rice"
                   rows={4}
                   className="form-textarea"
                 />
-                <div className="form-help">
-                  Example: "I had grilled chicken breast with steamed broccoli and brown rice"
+                <div className="flex justify-between items-center">
+                  <div className="form-help">
+                    Example: "I had grilled chicken breast with steamed broccoli and brown rice"
+                  </div>
+                  <div className={`text-sm ${isApproachingWordLimit() ? 'text-orange-600 font-medium' : 'text-gray-500'}`}>
+                    {getWordCount()}/{MAX_WORDS} words
+                    {isApproachingWordLimit() && (
+                      <span className="ml-2 text-orange-600">
+                        ({getRemainingWords()} remaining)
+                      </span>
+                    )}
+                  </div>
                 </div>
+                {getWordCount() >= MAX_WORDS && (
+                  <div className="text-sm text-red-600 mt-1">
+                    Maximum word limit reached. Additional text will not be saved.
+                  </div>
+                )}
               </div>
             </div>
             <div className="modal-footer">

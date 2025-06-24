@@ -1,8 +1,17 @@
-// Mock Firebase functions logger
+// Mock Firebase functions logger and errors
+const mockHttpsError = jest.fn().mockImplementation((code, message) => {
+  const error = new Error(message);
+  (error as any).code = code;
+  return error;
+});
+
 jest.mock('firebase-functions', () => ({
   logger: {
     info: jest.fn(),
     error: jest.fn(),
+  },
+  https: {
+    HttpsError: mockHttpsError,
   },
 }));
 
@@ -121,5 +130,49 @@ describe('analyzeNaturalLanguageMeal', () => {
     };
 
     await expect(analyzeNaturalLanguageMeal(mockRequest)).rejects.toThrow();
+  });
+
+  it('should reject descriptions with more than 100 words', async () => {
+    const over100Words = Array(101).fill('word').join(' ');
+    
+    const mockRequest = {
+      data: { description: over100Words },
+      auth: { uid: 'test-user' }
+    };
+
+    await expect(analyzeNaturalLanguageMeal(mockRequest)).rejects.toThrow(
+      'Meal description cannot exceed 100 words.'
+    );
+  });
+
+  it('should accept descriptions with exactly 100 words', async () => {
+    const exactly100Words = Array(100).fill('word').join(' ');
+    
+    const mockOpenAiResponse = {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            reasoning: 'Test reasoning for 100 words',
+            result: {
+              title: 'Test Meal',
+              calories: 500,
+              protein_g: 30,
+              fat_g: 20,
+              carbs_g: 40
+            }
+          })
+        }
+      }]
+    };
+    mockCreate.mockResolvedValueOnce(mockOpenAiResponse);
+    
+    const mockRequest = {
+      data: { description: exactly100Words },
+      auth: { uid: 'test-user' }
+    };
+
+    const result = await analyzeNaturalLanguageMeal(mockRequest);
+    expect(result).toBeDefined();
+    expect(result.result.title).toBe('Test Meal');
   });
 }); 

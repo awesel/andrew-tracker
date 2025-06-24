@@ -2,6 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuthState } from '../hooks/useAuthState';
+import { calculateSuggestedMacros } from '../utils/macroCalculator';
+import { imperialToMetric, metricToImperial } from '../utils/unitConversion';
+import type { 
+  UserMetrics, 
+  MacroSuggestion, 
+  Gender, 
+  ActivityLevel,
+  WeightGoal,
+} from '../utils/macroCalculator';
+import type {
+  UnitSystem,
+  ImperialMetrics,
+  MetricMetrics,
+} from '../utils/unitConversion';
 
 interface DailyGoals {
   calories: number;
@@ -9,6 +23,20 @@ interface DailyGoals {
   fat: number;
   carbs: number;
 }
+
+const ACTIVITY_LEVEL_LABELS: Record<ActivityLevel, string> = {
+  sedentary: 'Sedentary (little or no exercise)',
+  light: 'Lightly Active (exercise 1-3 days/week)',
+  moderate: 'Moderately Active (exercise 3-5 days/week)',
+  very_active: 'Very Active (hard exercise 6-7 days/week)',
+  extra_active: 'Extra Active (very hard exercise & physical job)',
+};
+
+const WEIGHT_GOAL_LABELS: Record<WeightGoal, string> = {
+  lose: 'Lose weight (about 1 pound per week)',
+  maintain: 'Maintain current weight',
+  gain: 'Gain weight (about 1 pound per week)',
+};
 
 const PRESET_GOALS = {
   'Maintenance': { calories: 2000, protein: 150, fat: 70, carbs: 250 },
@@ -19,7 +47,7 @@ const PRESET_GOALS = {
 
 export function Onboarding() {
   const { user, userData } = useAuthState();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
 
   // Decide initial step based on what data already exists
@@ -38,16 +66,76 @@ export function Onboarding() {
 
   // Step 1 state
   const [apiKey, setApiKey] = useState('');
-  // Step 2 state
+  
+  // Step 2 state (user metrics)
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>('imperial');
+  const [metrics, setMetrics] = useState<UserMetrics>({
+    gender: 'male',
+    height: 170,
+    weight: 70,
+    activityLevel: 'moderate',
+    weightGoal: 'maintain',
+  });
+  const [imperialMetrics, setImperialMetrics] = useState<ImperialMetrics>({
+    feet: 5,
+    inches: 8,
+    pounds: 154, // ~70kg
+  });
+  
+  // Step 3 state (suggested macros)
+  const [suggestedMacros, setSuggestedMacros] = useState<MacroSuggestion | null>(null);
   const [goals, setGoals] = useState({ calories: '', protein: '', fat: '', carbs: '' });
   const [saving, setSaving] = useState(false);
 
-  // --- Step navigation helpers --------------------------------------------------
+  // Handle unit system toggle
+  const handleUnitSystemChange = (newSystem: UnitSystem) => {
+    if (newSystem === unitSystem) return;
+    
+    setUnitSystem(newSystem);
+    if (newSystem === 'imperial') {
+      const imperial = metricToImperial({ height: metrics.height, weight: metrics.weight });
+      setImperialMetrics(imperial);
+    } else {
+      const metric = imperialToMetric(imperialMetrics);
+      setMetrics({ ...metrics, ...metric });
+    }
+  };
 
-  /**
-   * User finished entering their API key and wants to move to goal-setting. Persist the key immediately so
-   * that if the user refreshes/comes back later we can resume from step 2 instead of forcing them to re-enter.
-   */
+  // Handle metric changes based on current unit system
+  const handleMetricChange = (field: keyof UserMetrics | keyof ImperialMetrics) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const value = e.target.value;
+
+    if (unitSystem === 'imperial') {
+      if (field === 'feet' || field === 'inches' || field === 'pounds') {
+        const numValue = value === '' ? 0 : Number(value);
+        const newImperial = { ...imperialMetrics, [field]: numValue };
+        setImperialMetrics(newImperial);
+        // Update metric values
+        const metric = imperialToMetric(newImperial);
+        setMetrics({ ...metrics, ...metric });
+      } else {
+        setMetrics({ ...metrics, [field]: value });
+      }
+    } else {
+      if (field === 'height' || field === 'weight') {
+        const numValue = value === '' ? 0 : Number(value);
+        setMetrics({ ...metrics, [field]: numValue });
+        // Update imperial values
+        const imperial = metricToImperial({ ...metrics, [field]: numValue });
+        setImperialMetrics(imperial);
+      } else {
+        setMetrics({ ...metrics, [field]: value });
+      }
+    }
+  };
+
+  const handleGoalChange = (field: keyof DailyGoals) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setGoals({ ...goals, [field]: value });
+  };
+
   const handleNextFromStep1 = async () => {
     if (!user) return;
     setSaving(true);
@@ -57,7 +145,6 @@ export function Onboarding() {
         userDocRef,
         {
           apiKey: apiKey.trim(),
-          // Optional marker that can be helpful for analytics/debugging
           onboardingStep: 2,
         },
         { merge: true },
@@ -72,8 +159,52 @@ export function Onboarding() {
     }
   };
 
+  const handleNextFromStep2 = () => {
+    const macros = calculateSuggestedMacros(metrics);
+    setSuggestedMacros(macros);
+    setGoals({
+      calories: macros.calories.toString(),
+      protein: macros.protein.toString(),
+      fat: macros.fat.toString(),
+      carbs: macros.carbs.toString(),
+    });
+    setStep(3);
+  };
+
+  const handleSave = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      await setDoc(
+        userDocRef,
+        {
+          dailyGoals: {
+            calories: Number(goals.calories),
+            protein: Number(goals.protein),
+            fat: Number(goals.fat),
+            carbs: Number(goals.carbs),
+          },
+          userMetrics: metrics, // Store metrics for future reference
+        },
+        { merge: true },
+      );
+
+      setStep(4);
+
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
+    } catch (err) {
+      console.error('Error saving onboarding info', err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const canProceedStep1 = apiKey.trim().length > 0;
-  const canProceedStep2 = Object.values(goals).every((v) => Number(v) > 0);
+  const canProceedStep2 = metrics.height > 0 && metrics.weight > 0;
+  const canProceedStep3 = Object.values(goals).every((v) => Number(v) > 0);
 
   const handlePresetSelect = (presetName: string) => {
     setSelectedPreset(presetName);
@@ -86,52 +217,9 @@ export function Onboarding() {
     });
   };
 
-  const handleGoalChange = (field: keyof DailyGoals) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    // Allow empty string to let users clear the field
-    if (/^\d*$/.test(value)) {
-      setGoals({ ...goals, [field]: value });
-      setSelectedPreset(null);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!user) return;
-    setSaving(true);
-    try {
-      // Save API key & goals on the root user document so that useAuthState picks them up
-      const userDocRef = doc(db, 'users', user.uid);
-      await setDoc(
-        userDocRef,
-        {
-          apiKey: apiKey.trim(),
-          dailyGoals: {
-            calories: Number(goals.calories),
-            protein: Number(goals.protein),
-            fat: Number(goals.fat),
-            carbs: Number(goals.carbs),
-          },
-        },
-        { merge: true },
-      );
-
-      // Show completion UI (keeps existing tests happy) then redirect to dashboard
-      setStep(3);
-
-      // Small delay so users can briefly see the completion message
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
-    } catch (err) {
-      console.error('Error saving onboarding info', err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const StepIndicator = () => (
     <div className="flex items-center justify-center mb-8">
-      {[1, 2, 3].map((stepNumber) => (
+      {[1, 2, 3, 4].map((stepNumber) => (
         <React.Fragment key={stepNumber}>
           <div className={`
             w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
@@ -142,7 +230,7 @@ export function Onboarding() {
           `}>
             {step > stepNumber ? '✓' : stepNumber}
           </div>
-          {stepNumber < 3 && (
+          {stepNumber < 4 && (
             <div className={`
               w-12 h-1 mx-2
               ${step > stepNumber ? 'bg-primary' : 'bg-gray-200'}
@@ -157,8 +245,31 @@ export function Onboarding() {
     <div className="animate-slide-up">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-semibold text-gray-900 mb-3">
-          🔑 Setup API Access
+          👋 Welcome to Your Food Tracker
         </h2>
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="text-left p-4 border rounded-lg bg-blue-50">
+              <h3 className="text-xl font-medium text-gray-900 mb-2">
+                📸 Snap a Photo
+              </h3>
+              <p className="text-gray-600">
+                Simply take a photo of your meal and we'll automatically analyze it for you. Quick, easy, and accurate tracking at your fingertips.
+              </p>
+            </div>
+            <div className="text-left p-4 border rounded-lg bg-green-50">
+              <h3 className="text-xl font-medium text-gray-900 mb-2">
+                💬 Natural Language
+              </h3>
+              <p className="text-gray-600">
+                Or just type what you ate naturally, like "bowl of oatmeal with banana and honey" - we'll handle the rest!
+              </p>
+            </div>
+          </div>
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900 mb-3">
+          🔑 First, Let's Setup Your API Access
+        </h3>
         <p className="text-gray-600 leading-relaxed">
           We need an OpenAI API key to analyze your meal photos and provide nutrition information.
         </p>
@@ -217,183 +328,266 @@ export function Onboarding() {
     </div>
   );
 
-  const renderStep2 = () => {
-    return (
-      <div className="animate-slide-up">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">
-            🎯 Set Your Goals
-          </h2>
-          <p className="text-gray-600 leading-relaxed">
-            Choose a preset or customize your daily nutrition targets.
-          </p>
-        </div>
-
-        {/* Preset Options */}
-        <div className="mb-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Presets</h3>
-          <div className="grid grid-cols-2 gap-3">
-            {Object.entries(PRESET_GOALS).map(([name, preset]) => (
-              <button
-                key={name}
-                onClick={() => handlePresetSelect(name)}
-                className={`
-                  card card-compact text-left transition-all cursor-pointer
-                  ${selectedPreset === name 
-                    ? 'ring-2 ring-primary bg-primary-50' 
-                    : 'hover:shadow-md'
-                  }
-                `}
-              >
-                <div className="card-body">
-                  <div className="font-medium text-gray-900 mb-1">{name}</div>
-                  <div className="text-xs text-gray-600">
-                    {preset.calories} cal • {preset.protein}g protein
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Custom Goals */}
-        <div className="card mb-6">
-          <div className="card-header">
-            <h3 className="font-medium text-gray-900">Custom Goals</h3>
-          </div>
-          <div className="card-body">
-            {/* Calories - Full Width */}
-            <div className="form-group">
-              <label htmlFor="calories" className="form-label">
-                🔥 Daily Calories
-              </label>
-              <input
-                id="calories"
-                type="number"
-                min="0"
-                value={goals.calories}
-                onChange={handleGoalChange('calories')}
-                className="form-input"
-                placeholder="2000"
-              />
-            </div>
-
-            {/* Macros Grid */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="form-group">
-                <label htmlFor="protein" className="form-label">
-                  💪 Protein (g)
-                </label>
-                <input
-                  id="protein"
-                  type="number"
-                  min="0"
-                  value={goals.protein}
-                  onChange={handleGoalChange('protein')}
-                  className="form-input"
-                  placeholder="150"
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="fat" className="form-label">
-                  🥑 Fat (g)
-                </label>
-                <input
-                  id="fat"
-                  type="number"
-                  min="0"
-                  value={goals.fat}
-                  onChange={handleGoalChange('fat')}
-                  className="form-input"
-                  placeholder="70"
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="carbs" className="form-label">
-                  🍞 Carbs (g)
-                </label>
-                <input
-                  id="carbs"
-                  type="number"
-                  min="0"
-                  value={goals.carbs}
-                  onChange={handleGoalChange('carbs')}
-                  className="form-input"
-                  placeholder="250"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-3">
-          <button 
-            onClick={() => setStep(1)} 
-            className="btn btn-secondary"
-          >
-            <span>←</span>
-            Back
-          </button>
-          <button 
-            disabled={!canProceedStep2 || saving} 
-            onClick={handleSave} 
-            className="btn btn-primary flex-1"
-          >
-            {saving ? (
-              <>
-                <div className="loading-spinner w-4 h-4 border border-white border-t-transparent"></div>
-                <span>Saving...</span>
-              </>
-            ) : (
-              <>
-                <span>Save</span>
-                <span>💾</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderStep3 = () => (
-    <div className="animate-slide-up text-center">
-      <div className="mb-8">
-        <div className="text-6xl mb-4">🎉</div>
+  const renderStep2 = () => (
+    <div className="animate-slide-up">
+      <div className="text-center mb-8">
         <h2 className="text-2xl font-semibold text-gray-900 mb-3">
-          All Set!
+          📊 Your Profile
         </h2>
         <p className="text-gray-600 leading-relaxed">
-          Your Munch Club account is ready. You can now start tracking your nutrition!
+          Let's calculate your recommended daily nutrition targets.
         </p>
       </div>
 
       <div className="card mb-6">
-        <div className="card-body">
-          <h3 className="font-medium text-gray-900 mb-3">What's Next?</h3>
-          <div className="space-y-3 text-left">
-            <div className="flex items-center gap-3">
-              <div className="text-xl">📷</div>
-              <span className="text-gray-700">Take photos of your meals</span>
+        <div className="card-body space-y-4">
+          {/* Unit System Toggle */}
+          <div className="flex justify-center gap-2 mb-4">
+            <button
+              onClick={() => handleUnitSystemChange('imperial')}
+              className={`btn ${unitSystem === 'imperial' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              Imperial
+            </button>
+            <button
+              onClick={() => handleUnitSystemChange('metric')}
+              className={`btn ${unitSystem === 'metric' ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              Metric
+            </button>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="gender" className="form-label">Gender</label>
+            <select
+              id="gender"
+              value={metrics.gender}
+              onChange={handleMetricChange('gender')}
+              className="form-select"
+            >
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+
+          {unitSystem === 'imperial' ? (
+            // Imperial Height Input (feet and inches)
+            <div className="form-group">
+              <label className="form-label">Height</label>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="9"
+                    value={imperialMetrics.feet || ''}
+                    onChange={handleMetricChange('feet')}
+                    placeholder="5"
+                    className="form-input"
+                  />
+                  <span className="text-sm text-gray-600">ft</span>
+                </div>
+                <div className="flex-1">
+                  <input
+                    type="number"
+                    min="0"
+                    max="11"
+                    value={imperialMetrics.inches || ''}
+                    onChange={handleMetricChange('inches')}
+                    placeholder="8"
+                    className="form-input"
+                  />
+                  <span className="text-sm text-gray-600">in</span>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="text-xl">🤖</div>
-              <span className="text-gray-700">Get AI-powered nutrition analysis</span>
+          ) : (
+            // Metric Height Input
+            <div className="form-group">
+              <label htmlFor="height" className="form-label">Height (cm)</label>
+              <input
+                id="height"
+                type="number"
+                min="0"
+                max="300"
+                value={metrics.height || ''}
+                onChange={handleMetricChange('height')}
+                placeholder="170"
+                className="form-input"
+              />
             </div>
-            <div className="flex items-center gap-3">
-              <div className="text-xl">📊</div>
-              <span className="text-gray-700">Track your progress toward goals</span>
+          )}
+
+          {unitSystem === 'imperial' ? (
+            // Imperial Weight Input
+            <div className="form-group">
+              <label htmlFor="weight" className="form-label">Weight (lbs)</label>
+              <input
+                id="weight"
+                type="number"
+                min="0"
+                max="1000"
+                value={imperialMetrics.pounds || ''}
+                onChange={handleMetricChange('pounds')}
+                placeholder="154"
+                className="form-input"
+              />
             </div>
+          ) : (
+            // Metric Weight Input
+            <div className="form-group">
+              <label htmlFor="weight" className="form-label">Weight (kg)</label>
+              <input
+                id="weight"
+                type="number"
+                min="0"
+                max="500"
+                value={metrics.weight || ''}
+                onChange={handleMetricChange('weight')}
+                placeholder="70"
+                className="form-input"
+              />
+            </div>
+          )}
+
+          <div className="form-group">
+            <label htmlFor="activityLevel" className="form-label">Activity Level</label>
+            <select
+              id="activityLevel"
+              value={metrics.activityLevel}
+              onChange={handleMetricChange('activityLevel')}
+              className="form-select"
+            >
+              {(Object.entries(ACTIVITY_LEVEL_LABELS) as [ActivityLevel, string][]).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="weightGoal" className="form-label">Weight Goal</label>
+            <select
+              id="weightGoal"
+              value={metrics.weightGoal}
+              onChange={handleMetricChange('weightGoal')}
+              className="form-select"
+            >
+              {(Object.entries(WEIGHT_GOAL_LABELS) as [WeightGoal, string][]).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
 
-      <div className="loading">
-        <div className="loading-spinner mb-2"></div>
-        <p className="text-gray-500 text-sm">Taking you to your dashboard...</p>
+      <div className="flex gap-3">
+        <button 
+          disabled={!canProceedStep2} 
+          onClick={handleNextFromStep2} 
+          className="btn btn-primary w-full"
+        >
+          Calculate Suggested Macros
+        </button>
       </div>
+    </div>
+  );
+
+  const renderStep3 = () => (
+    <div className="animate-slide-up">
+      <div className="text-center mb-8">
+        <h2 className="text-2xl font-semibold text-gray-900 mb-3">
+          🎯 Suggested Macros
+        </h2>
+        <p className="text-gray-600 leading-relaxed">
+          Based on your profile, here are your recommended daily targets.
+          Feel free to adjust them to match your specific goals.
+        </p>
+      </div>
+
+      <div className="card mb-6">
+        <div className="card-body space-y-4">
+          <div className="form-group">
+            <label htmlFor="calories" className="form-label">Daily Calories</label>
+            <input
+              id="calories"
+              type="number"
+              min="0"
+              max="10000"
+              value={goals.calories || ''}
+              onChange={handleGoalChange('calories')}
+              className="form-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="protein" className="form-label">Protein (g)</label>
+            <input
+              id="protein"
+              type="number"
+              min="0"
+              max="1000"
+              value={goals.protein || ''}
+              onChange={handleGoalChange('protein')}
+              className="form-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="fat" className="form-label">Fat (g)</label>
+            <input
+              id="fat"
+              type="number"
+              min="0"
+              max="1000"
+              value={goals.fat || ''}
+              onChange={handleGoalChange('fat')}
+              className="form-input"
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="carbs" className="form-label">Carbs (g)</label>
+            <input
+              id="carbs"
+              type="number"
+              min="0"
+              max="1000"
+              value={goals.carbs || ''}
+              onChange={handleGoalChange('carbs')}
+              className="form-input"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <button 
+          disabled={!canProceedStep3 || saving} 
+          onClick={handleSave} 
+          className="btn btn-primary w-full"
+        >
+          {saving ? (
+            <>
+              <div className="loading-spinner w-4 h-4 border border-white border-t-transparent"></div>
+              <span>Saving...</span>
+            </>
+          ) : (
+            'Save Goals'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderStep4 = () => (
+    <div className="animate-slide-up text-center">
+      <div className="text-6xl mb-4">🎉</div>
+      <h2 className="text-2xl font-semibold text-gray-900 mb-3">
+        All Set!
+      </h2>
+      <p className="text-gray-600">
+        Redirecting you to your dashboard...
+      </p>
     </div>
   );
 
@@ -422,6 +616,7 @@ export function Onboarding() {
           {step === 1 && renderStep1()}
           {step === 2 && renderStep2()}
           {step === 3 && renderStep3()}
+          {step === 4 && renderStep4()}
         </div>
       </div>
     </div>

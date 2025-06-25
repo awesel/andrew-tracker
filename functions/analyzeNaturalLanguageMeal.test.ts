@@ -28,7 +28,7 @@ jest.mock('./src/index', () => ({
 }));
 
 // Mock Firebase Functions config
-import * as functions from 'firebase-functions';
+// Note: functions import is needed for HttpsError type checking
 jest.mock('firebase-functions', () => ({
   ...jest.requireActual('firebase-functions'),
   config: jest.fn()
@@ -196,12 +196,16 @@ describe('analyzeNaturalLanguageMeal', () => {
   });
 
   it('should handle missing OpenAI API key', async () => {
-    (functions.config as jest.Mock).mockReturnValue({});
+    // Remove the API key from environment
+    delete process.env.OPENAI_KEY;
 
     const wrapped = test.wrap(analyzeNaturalLanguageMeal);
     await expect(wrapped(mockRequest)).rejects.toThrow(
       'OpenAI API key not configured'
     );
+    
+    // Restore the API key for other tests
+    process.env.OPENAI_KEY = 'test-api-key';
   });
 
   it('should handle missing description', async () => {

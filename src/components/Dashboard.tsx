@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { useDailyTotals } from '../hooks/useDailyTotals';
 import { useDailyEntries } from '../hooks/useDailyEntries';
 import type { MealEntry } from '../hooks/useDailyEntries';
@@ -459,32 +459,43 @@ function MealCard({
   );
 }
 
-function RemainingRequests() {
+function RemainingRequests({ refreshTrigger }: { refreshTrigger: number }) {
   const { user } = useAuthState();
   const [remaining, setRemaining] = useState<number | null>(null);
   const [total, setTotal] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchRemaining = useCallback(async () => {
     if (!user) return;
 
-    const functions = getFunctions(firebaseApp);
-    const getRemainingRequestsFn = httpsCallable(functions, 'getRemainingRequests');
-
-    const fetchRemaining = async () => {
-      try {
-        const result = await getRemainingRequestsFn();
-        const data = result.data as any;
-        setRemaining(data.remaining);
-        setTotal(data.total);
-      } catch (error) {
-        console.error('Error fetching remaining requests:', error);
-      }
-    };
-
-    fetchRemaining();
+    setIsLoading(true);
+    try {
+      const functions = getFunctions(firebaseApp);
+      const getRemainingRequestsFn = httpsCallable(functions, 'getRemainingRequests');
+      const result = await getRemainingRequestsFn();
+      const data = result.data as any;
+      setRemaining(data.remaining);
+      setTotal(data.total);
+      console.log(`Updated remaining requests: ${data.remaining}/${data.total} (dateKey: ${data.dateKey})`);
+    } catch (error) {
+      console.error('Error fetching remaining requests:', error);
+    } finally {
+      setIsLoading(false);
+    }
   }, [user]);
 
-  if (remaining === null || total === null) return null;
+  useEffect(() => {
+    fetchRemaining();
+  }, [user, refreshTrigger, fetchRemaining]);
+
+  if (remaining === null || total === null) {
+    return isLoading ? (
+      <div className="text-sm text-gray-600 flex items-center gap-2">
+        <div className="loading-spinner w-3 h-3"></div>
+        <span>Checking AI usage...</span>
+      </div>
+    ) : null;
+  }
 
   return (
     <div className="text-sm text-gray-600 flex items-center gap-2">
@@ -494,6 +505,7 @@ function RemainingRequests() {
           ⚠️ Limit reached, use manual entry
         </span>
       )}
+      {isLoading && <div className="loading-spinner w-3 h-3"></div>}
     </div>
   );
 }
@@ -535,6 +547,7 @@ export function Dashboard() {
   const [naturalLanguageDescription, setNaturalLanguageDescription] = useState('');
   const [collapsedAnalysis, setCollapsedAnalysis] = useState<{ [key: string]: boolean }>({});
   const [isProcessingNaturalLanguage, setIsProcessingNaturalLanguage] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Constants and derived values
   const DAILY_GOALS = userData?.dailyGoals ?? FALLBACK_DAILY_GOALS;
@@ -622,8 +635,6 @@ export function Dashboard() {
       return d;
     });
   };
-
-
 
   const handleEditMeal = (meal: MealEntry) => {
     setEditingMeal(meal);
@@ -807,6 +818,7 @@ export function Dashboard() {
         
         setNaturalLanguageDescription('');
         setShowNaturalLanguageModal(false);
+        setRefreshTrigger(prev => prev + 1); // Trigger refresh of remaining requests
       } catch (functionError: any) {
         if (functionError?.code === 'resource-exhausted') {
           alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
@@ -903,6 +915,7 @@ export function Dashboard() {
       setNaturalLanguageDescription('');
       setShowPhotoFollowupModal(false);
       setPhotoImageUrl(null);
+      setRefreshTrigger(prev => prev + 1); // Trigger refresh of remaining requests
     } catch (error) {
       console.error('Error processing photo with description:', error);
       alert('Failed to process meal. Please try again or use manual entry.');
@@ -945,6 +958,7 @@ export function Dashboard() {
       
       setShowPhotoFollowupModal(false);
       setPhotoImageUrl(null);
+      setRefreshTrigger(prev => prev + 1); // Trigger refresh of remaining requests
     } catch (error) {
       console.error('Error analyzing photo:', error);
       alert('Failed to analyze meal. Please try again or use manual entry.');
@@ -1049,7 +1063,7 @@ export function Dashboard() {
             {isSelectedDateToday ? "Today's Meals" : `${selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} Meals`}
           </h2>
           <div className="flex items-center gap-4">
-            <RemainingRequests />
+                          <RemainingRequests refreshTrigger={refreshTrigger} />
             <div className="text-sm text-gray-600">
               {entries.length} meal{entries.length !== 1 ? 's' : ''}
             </div>

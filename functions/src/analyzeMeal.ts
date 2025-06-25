@@ -29,7 +29,11 @@ export const analyzeMeal = onCall(
           'Daily API limit reached. Please use manual entry for additional meals today.'
         );
       }
-    } catch (error) {
+    } catch (error: any) {
+      // If it's already a HttpsError with resource-exhausted, re-throw it
+      if (error instanceof functions.https.HttpsError && error.code === 'resource-exhausted') {
+        throw error;
+      }
       console.error('Error checking usage limit:', error);
       throw new functions.https.HttpsError('internal', 'Error checking usage limit');
     }

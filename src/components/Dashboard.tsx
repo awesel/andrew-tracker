@@ -3,6 +3,7 @@ import { useDailyTotals } from '../hooks/useDailyTotals';
 import { useDailyEntries } from '../hooks/useDailyEntries';
 import type { MealEntry } from '../hooks/useDailyEntries';
 import { useAuthState } from '../hooks/useAuthState';
+import { usePastMeals } from '../hooks/usePastMeals';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
@@ -37,7 +38,8 @@ interface EditForm {
   protein_g: number;
   fat_g: number;
   carbs_g: number;
-  name?: string;
+  name: string;
+  scaleFactor: string;
 }
 
 interface MacroRingProps {
@@ -281,7 +283,8 @@ function MealCard({
   onCancelEdit,
   isValidForm,
   collapsedAnalysis,
-  onToggleAnalysis 
+  onToggleAnalysis,
+  onApplyScaleFactor
 }: {
   meal: MealEntry;
   onEdit: (meal: MealEntry) => void;
@@ -294,6 +297,7 @@ function MealCard({
   isValidForm: boolean;
   collapsedAnalysis: { [key: string]: boolean };
   onToggleAnalysis: (id: string) => void;
+  onApplyScaleFactor: () => void;
 }) {
   if (isEditing) {
     return (
@@ -316,15 +320,42 @@ function MealCard({
             />
           </div>
 
+          {/* Scale Factor */}
+          <div className="form-group">
+            <label className="form-label">⚖️ Scale Factor</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={editForm.scaleFactor}
+                onChange={(e) => onEditFormChange('scaleFactor', e.target.value)}
+                placeholder="e.g., 0.5, 2, 1.5"
+                className="form-input flex-1"
+              />
+              <button
+                type="button"
+                onClick={onApplyScaleFactor}
+                disabled={!editForm.scaleFactor}
+                className="btn btn-secondary px-3"
+                title="Apply scale factor to all values"
+              >
+                Apply
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Enter a number to scale all values (0.5 = half, 2 = double)
+            </p>
+          </div>
+
           {/* Nutrition Grid */}
           <div className="grid grid-cols-1 gap-4">
             <div className="form-group">
               <label className="form-label">🔥 Calories</label>
               <input
-                type="number"
-                min="0"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={editForm.calories}
-                onChange={(e) => onEditFormChange('calories', Number(e.target.value) || 0)}
+                onChange={(e) => onEditFormChange('calories', e.target.value)}
                 className="form-input"
               />
             </div>
@@ -333,22 +364,22 @@ function MealCard({
               <div className="form-group">
                 <label className="form-label">💪 Protein (g)</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="0.1"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={editForm.protein_g}
-                  onChange={(e) => onEditFormChange('protein_g', Number(e.target.value) || 0)}
+                  onChange={(e) => onEditFormChange('protein_g', e.target.value)}
                   className="form-input"
                 />
               </div>
               <div className="form-group">
                 <label className="form-label">🥑 Fat (g)</label>
                 <input
-                  type="number"
-                  min="0"
-                  step="0.1"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={editForm.fat_g}
-                  onChange={(e) => onEditFormChange('fat_g', Number(e.target.value) || 0)}
+                  onChange={(e) => onEditFormChange('fat_g', e.target.value)}
                   className="form-input"
                 />
               </div>
@@ -357,11 +388,11 @@ function MealCard({
             <div className="form-group">
               <label className="form-label">🍞 Carbs (g)</label>
               <input
-                type="number"
-                min="0"
-                step="0.1"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={editForm.carbs_g}
-                onChange={(e) => onEditFormChange('carbs_g', Number(e.target.value) || 0)}
+                onChange={(e) => onEditFormChange('carbs_g', e.target.value)}
                 className="form-input"
               />
             </div>
@@ -526,12 +557,13 @@ export function Dashboard() {
   
   // State management
   const [editingMeal, setEditingMeal] = useState<MealEntry | null>(null);
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<EditForm>({
     name: '',
     calories: 0,
     protein_g: 0,
     fat_g: 0,
     carbs_g: 0,
+    scaleFactor: '',
   });
   const [showManualMealModal, setShowManualMealModal] = useState(false);
   const [showNaturalLanguageModal, setShowNaturalLanguageModal] = useState(false);
@@ -548,6 +580,12 @@ export function Dashboard() {
   const [collapsedAnalysis, setCollapsedAnalysis] = useState<{ [key: string]: boolean }>({});
   const [isProcessingNaturalLanguage, setIsProcessingNaturalLanguage] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  
+  // Past meal functionality state
+  const [showPastMealModal, setShowPastMealModal] = useState(false);
+  const [showPastMealEditModal, setShowPastMealEditModal] = useState(false);
+  const [selectedPastMeal, setSelectedPastMeal] = useState<MealEntry | null>(null);
+  const { pastMeals } = usePastMeals();
 
   // Constants and derived values
   const DAILY_GOALS = userData?.dailyGoals ?? FALLBACK_DAILY_GOALS;
@@ -598,6 +636,38 @@ export function Dashboard() {
     return MAX_WORDS - getWordCount();
   };
 
+  // Helper to validate integer input (no leading zeros)
+  const validateIntegerInput = (value: string): string => {
+    // Remove non-numeric characters
+    const numericOnly = value.replace(/[^0-9]/g, '');
+    
+    // Remove leading zeros unless it's just "0"
+    if (numericOnly.length > 1 && numericOnly.startsWith('0')) {
+      return numericOnly.replace(/^0+/, '');
+    }
+    
+    return numericOnly;
+  };
+
+  // Helper to apply scale factor to meal values
+  const applyScaleFactor = () => {
+    if (!editForm.scaleFactor || (!editingMeal && !selectedPastMeal)) return;
+    
+    const scale = parseFloat(editForm.scaleFactor);
+    if (isNaN(scale) || scale <= 0) return;
+
+    const baseMeal = editingMeal || selectedPastMeal;
+    if (!baseMeal) return;
+
+    setEditForm(prev => ({
+      ...prev,
+      calories: Math.round(baseMeal.calories * scale * 10) / 10,
+      protein_g: Math.round(baseMeal.protein_g * scale * 10) / 10,
+      fat_g: Math.round(baseMeal.fat_g * scale * 10) / 10,
+      carbs_g: Math.round(baseMeal.carbs_g * scale * 10) / 10,
+    }));
+  };
+
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -644,11 +714,18 @@ export function Dashboard() {
       protein_g: meal.protein_g,
       fat_g: meal.fat_g,
       carbs_g: meal.carbs_g,
+      scaleFactor: '',
     });
   };
 
   const handleEditFormChange = (field: string, value: string | number) => {
-    setEditForm(prev => ({ ...prev, [field]: value }));
+    // Apply integer validation for numeric fields
+    if (['calories', 'protein_g', 'fat_g', 'carbs_g'].includes(field) && typeof value === 'string') {
+      const validatedValue = validateIntegerInput(value);
+      setEditForm(prev => ({ ...prev, [field]: parseInt(validatedValue) || 0 }));
+    } else {
+      setEditForm(prev => ({ ...prev, [field]: value }));
+    }
   };
 
   const handleSaveMeal = async () => {
@@ -1009,6 +1086,54 @@ export function Dashboard() {
     }
   };
 
+  // Past meal functionality handlers
+  const handleAddPastMeal = () => {
+    setShowPastMealModal(true);
+  };
+
+  const handleSelectPastMeal = (meal: MealEntry) => {
+    setSelectedPastMeal(meal);
+    setShowPastMealModal(false);
+    setEditForm({
+      name: meal.name ?? '',
+      calories: meal.calories,
+      protein_g: meal.protein_g,
+      fat_g: meal.fat_g,
+      carbs_g: meal.carbs_g,
+      scaleFactor: '1',
+    });
+    setShowPastMealEditModal(true);
+  };
+
+  const handlePastMealSave = async () => {
+    if (!user || !selectedPastMeal) return;
+
+    try {
+      const entriesCol = collection(db, 'users', user.uid, 'entries');
+      const newMeal = {
+        name: editForm.name.trim() || selectedPastMeal.name || 'Past Meal',
+        calories: editForm.calories,
+        protein_g: editForm.protein_g,
+        fat_g: editForm.fat_g,
+        carbs_g: editForm.carbs_g,
+        createdAt: serverTimestamp(),
+      };
+
+      await addDoc(entriesCol, newMeal);
+      setRefreshTrigger(prev => prev + 1);
+      setShowPastMealEditModal(false);
+      setSelectedPastMeal(null);
+    } catch (error) {
+      console.error('Error adding past meal:', error);
+      alert('Failed to add past meal. Please try again.');
+    }
+  };
+
+  const handleCancelPastMeal = () => {
+    setShowPastMealEditModal(false);
+    setSelectedPastMeal(null);
+  };
+
   return (
     <div className="mobile-container pb-20">
       {/* Header */}
@@ -1112,6 +1237,7 @@ export function Dashboard() {
                 isValidForm={isValidForm()}
                 collapsedAnalysis={collapsedAnalysis}
                 onToggleAnalysis={toggleAnalysis}
+                onApplyScaleFactor={applyScaleFactor}
               />
             ))}
           </div>
@@ -1143,6 +1269,14 @@ export function Dashboard() {
             title="Add Manual Meal"
           >
             ✏️
+          </button>
+
+          <button
+            onClick={handleAddPastMeal}
+            className="fab fab-grey"
+            title="Add Past Meal"
+          >
+            📖
           </button>
         </div>
       )}
@@ -1385,6 +1519,171 @@ export function Dashboard() {
                 ) : (
                   <>🤖 Analyze with Details</>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Past Meal Selection Modal */}
+      {showPastMealModal && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <div className="modal-header">
+              <h2 className="modal-title">Add Past Meal</h2>
+            </div>
+            <div className="modal-body">
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {pastMeals.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-4xl mb-4">📖</div>
+                    <p className="text-gray-600">No past meals found.</p>
+                    <p className="text-sm text-gray-500 mt-2">Log some meals first to reuse them later!</p>
+                  </div>
+                ) : (
+                  pastMeals.map((meal) => (
+                    <div key={meal.id} className="border rounded-lg p-3 hover:bg-gray-50">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="font-medium text-gray-900">
+                            {meal.name || 'Unnamed Meal'}
+                          </h3>
+                          <div className="text-sm text-gray-600 mt-1">
+                            {new Date(meal.createdAt).toLocaleDateString()}
+                          </div>
+                          <div className="text-sm text-gray-500 mt-1">
+                            {meal.calories} cal • {meal.protein_g}g protein • {meal.fat_g}g fat • {meal.carbs_g}g carbs
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleSelectPastMeal(meal)}
+                          className="btn btn-primary btn-sm ml-3"
+                        >
+                          Select
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                onClick={() => setShowPastMealModal(false)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Past Meal Edit Modal */}
+      {showPastMealEditModal && selectedPastMeal && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <div className="modal-header">
+              <h2 className="modal-title">Edit Past Meal</h2>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Meal Name</label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => handleEditFormChange('name', e.target.value)}
+                  placeholder="Enter meal name"
+                  className="form-input"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Scale Factor</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={editForm.scaleFactor}
+                    onChange={(e) => handleEditFormChange('scaleFactor', e.target.value)}
+                    placeholder="1.0"
+                    className="form-input flex-1"
+                  />
+                  <button
+                    onClick={applyScaleFactor}
+                    className="btn btn-secondary"
+                    disabled={!editForm.scaleFactor}
+                  >
+                    Apply Scale
+                  </button>
+                </div>
+                <div className="form-help">
+                  Example: 1.5 for 1.5x portion, 0.5 for half portion
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">🔥 Calories</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.calories}
+                  onChange={(e) => handleEditFormChange('calories', e.target.value)}
+                  className="form-input"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="form-group">
+                  <label className="form-label">💪 Protein (g)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={editForm.protein_g}
+                    onChange={(e) => handleEditFormChange('protein_g', e.target.value)}
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">🥑 Fat (g)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={editForm.fat_g}
+                    onChange={(e) => handleEditFormChange('fat_g', e.target.value)}
+                    className="form-input"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">🍞 Carbs (g)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={editForm.carbs_g}
+                  onChange={(e) => handleEditFormChange('carbs_g', e.target.value)}
+                  className="form-input"
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                onClick={handleCancelPastMeal}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePastMealSave}
+                disabled={!isValidForm()}
+                className="btn btn-primary"
+              >
+                💾 Add Meal
               </button>
             </div>
           </div>

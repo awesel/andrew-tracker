@@ -131,7 +131,7 @@ async function processImageWithOpenAI(openai: any, imageUrl: string, description
 
 When asked to analyse a meal photo you MUST:
 1. First, identify all foods visible in the image.
-2. CRITICAL: If the user provides instructions about what to include/exclude, you MUST follow their instructions even if it means ignoring visible foods or adjusting portions. User instructions always override what you see.
+2. CRITICAL: If the user provides instructions about what to include/exclude, you should intelligently decide how to use the user's instructions to best analyze the meal. They might provide a specific serving size for one of many foods in the photo- in that case, you might use their value for that food, and estimate the other portions.
 3. Calculate calories, protein_g, fat_g and carbs_g for only the foods the user wants analyzed.
 4. Produce a very short, descriptive title (≤ 6 words) that uses the most prominent foods *by name* that you actually analyzed (e.g. "Avocado Toast & Latte").
    • Do NOT use generic words like "meal", "food", "dish", "plate" on their own.

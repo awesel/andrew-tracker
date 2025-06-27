@@ -4,6 +4,7 @@ import { Dashboard } from './Dashboard';
 import { useDailyTotals } from '../hooks/useDailyTotals';
 import { useDailyEntries } from '../hooks/useDailyEntries';
 import { useAuthState } from '../hooks/useAuthState';
+import { usePastMeals } from '../hooks/usePastMeals';
 import { doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { getStorage, ref } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -13,6 +14,7 @@ import '@testing-library/jest-dom';
 jest.mock('../hooks/useDailyTotals');
 jest.mock('../hooks/useDailyEntries');
 jest.mock('../hooks/useAuthState');
+jest.mock('../hooks/usePastMeals');
 
 // Mock Firebase
 jest.mock('firebase/firestore', () => ({
@@ -50,6 +52,7 @@ jest.mock('../utils/imageConversion', () => ({
 const mockUseDailyTotals = useDailyTotals as jest.MockedFunction<typeof useDailyTotals>;
 const mockUseDailyEntries = useDailyEntries as jest.MockedFunction<typeof useDailyEntries>;
 const mockUseAuthState = useAuthState as jest.MockedFunction<typeof useAuthState>;
+const mockUsePastMeals = usePastMeals as jest.MockedFunction<typeof usePastMeals>;
 
 // Mock Firebase Functions
 const mockHttpsCallable = jest.fn();
@@ -130,6 +133,11 @@ describe('Dashboard', () => {
       },
       loading: false,
       needsOnboarding: false,
+    });
+
+    mockUsePastMeals.mockReturnValue({
+      pastMeals: [],
+      loading: false,
     });
   });
 
@@ -309,6 +317,146 @@ describe('Dashboard', () => {
     // Should be truncated to exactly 100 words
     const expected100Words = Array(100).fill('word').join(' ');
     expect(textarea).toHaveValue(expected100Words);
+  });
+
+  describe('Add Past Meal functionality', () => {
+    it('should show add past meal button with book icon', () => {
+      render(<Dashboard />);
+      
+      const addPastMealButton = screen.getByTitle('Add Past Meal');
+      expect(addPastMealButton).toBeInTheDocument();
+      expect(addPastMealButton).toHaveTextContent('📖');
+    });
+
+    it('should open past meal selection modal when add past meal button is clicked', async () => {
+      render(<Dashboard />);
+      
+      const addPastMealButton = screen.getByTitle('Add Past Meal');
+      fireEvent.click(addPastMealButton);
+      
+      await waitFor(() => {
+        expect(screen.getByText('Add Past Meal')).toBeInTheDocument();
+      });
+    });
+
+    it('should display past meals from user entries collection', async () => {
+      // Mock past meals data
+      const mockPastMeals = [
+        {
+          id: 'past-1',
+          name: 'Grilled Chicken Salad',
+          calories: 400,
+          protein_g: 35,
+          fat_g: 15,
+          carbs_g: 20,
+          createdAt: new Date('2024-01-01'),
+        },
+        {
+          id: 'past-2',
+          name: 'Pasta Bolognese',
+          calories: 650,
+          protein_g: 25,
+          fat_g: 18,
+          carbs_g: 75,
+          createdAt: new Date('2024-01-02'),
+        },
+      ];
+
+      // Override the mock to return our test data
+      mockUsePastMeals.mockReturnValue({
+        pastMeals: mockPastMeals,
+        loading: false,
+      });
+
+      render(<Dashboard />);
+      
+      const addPastMealButton = screen.getByTitle('Add Past Meal');
+      fireEvent.click(addPastMealButton);
+      
+      await waitFor(() => {
+        expect(screen.getByText('Grilled Chicken Salad')).toBeInTheDocument();
+        expect(screen.getByText('Pasta Bolognese')).toBeInTheDocument();
+      });
+    });
+
+    it('should allow scaling macros when selecting a past meal', async () => {
+      const mockPastMeals = [
+        {
+          id: 'past-1',
+          name: 'Grilled Chicken Salad',
+          calories: 400,
+          protein_g: 35,
+          fat_g: 15,
+          carbs_g: 20,
+          createdAt: new Date('2024-01-01'),
+        },
+      ];
+
+      // Override the mock to return our test data
+      mockUsePastMeals.mockReturnValue({
+        pastMeals: mockPastMeals,
+        loading: false,
+      });
+
+      render(<Dashboard />);
+      
+      const addPastMealButton = screen.getByTitle('Add Past Meal');
+      fireEvent.click(addPastMealButton);
+      
+      await waitFor(() => {
+        const selectButton = screen.getByText('Select');
+        fireEvent.click(selectButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText('Edit Past Meal')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('400')).toBeInTheDocument(); // calories
+        expect(screen.getByDisplayValue('35')).toBeInTheDocument(); // protein
+      });
+    });
+
+    it('should apply scale factor to all macros when editing past meal', async () => {
+      const mockPastMeals = [
+        {
+          id: 'past-1',
+          name: 'Grilled Chicken Salad',
+          calories: 400,
+          protein_g: 35,
+          fat_g: 15,
+          carbs_g: 20,
+          createdAt: new Date('2024-01-01'),
+        },
+      ];
+
+      // Override the mock to return our test data
+      mockUsePastMeals.mockReturnValue({
+        pastMeals: mockPastMeals,
+        loading: false,
+      });
+
+      render(<Dashboard />);
+      
+      const addPastMealButton = screen.getByTitle('Add Past Meal');
+      fireEvent.click(addPastMealButton);
+      
+      await waitFor(() => {
+        const selectButton = screen.getByText('Select');
+        fireEvent.click(selectButton);
+      });
+
+      await waitFor(() => {
+        const scaleInput = screen.getByDisplayValue('1');
+        fireEvent.change(scaleInput, { target: { value: '1.5' } });
+        
+        const applyScaleButton = screen.getByText('Apply Scale');
+        fireEvent.click(applyScaleButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('600')).toBeInTheDocument(); // 400 * 1.5
+        expect(screen.getByDisplayValue('52.5')).toBeInTheDocument(); // 35 * 1.5
+      });
+    });
   });
 
   describe('Enhanced Macro Widget', () => {

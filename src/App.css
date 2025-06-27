@@ -568,6 +568,10 @@
   background: linear-gradient(135deg, var(--accent-blue), #2563eb);
 }
 
+.fab-grey {
+  background: linear-gradient(135deg, var(--gray-500), var(--gray-600));
+}
+
 /* Utility Classes */
 .text-center { text-align: center; }
 .text-left { text-align: left; }

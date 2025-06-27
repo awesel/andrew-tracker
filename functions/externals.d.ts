@@ -8,6 +8,7 @@ declare module 'firebase-admin/app' {
 
 declare module 'firebase-admin/firestore' {
   export const getFirestore: any;
+  export type Transaction = any;
 }
 
 declare module 'openai' {

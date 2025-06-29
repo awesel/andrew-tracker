@@ -6,7 +6,7 @@ import { useAuthState } from '../hooks/useAuthState';
 import { usePastMeals } from '../hooks/usePastMeals';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc, getDoc, Timestamp } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import firebaseApp, { db, auth } from '../firebase';
@@ -606,10 +606,6 @@ export function Dashboard() {
     return selectedDate.getTime() === today.getTime();
   }, [selectedDate, today]);
 
-  const isSelectedDateInPast = useMemo(() => {
-    return selectedDate.getTime() < today.getTime();
-  }, [selectedDate, today]);
-
   // Word count helpers for natural language description
   const MAX_WORDS = 100;
   const WARNING_THRESHOLD = 90;
@@ -818,7 +814,7 @@ export function Dashboard() {
         protein_g: manualMealForm.protein_g,
         fat_g: manualMealForm.fat_g,
         carbs_g: manualMealForm.carbs_g,
-        createdAt: serverTimestamp() as any,
+        createdAt: Timestamp.fromDate(selectedDate) as any,
       };
 
       await addDoc(collection(db, 'users', user.uid, 'entries'), updates);
@@ -873,7 +869,6 @@ export function Dashboard() {
         const result = await analyzeNaturalLanguageMealFn({ description: naturalLanguageDescription });
         const response = result.data as any;
         
-        // More robust response validation
         if (!response || !response.result) {
           throw new Error('Invalid response from analysis service');
         }
@@ -890,12 +885,12 @@ export function Dashboard() {
           fat_g: Number(fat_g) || 0,
           carbs_g: Number(carbs_g) || 0,
           reasoning,
-          createdAt: serverTimestamp(),
+          createdAt: Timestamp.fromDate(selectedDate),
         });
         
         setNaturalLanguageDescription('');
         setShowNaturalLanguageModal(false);
-        setRefreshTrigger(prev => prev + 1); // Trigger refresh of remaining requests
+        setRefreshTrigger(prev => prev + 1);
       } catch (functionError: any) {
         if (functionError?.code === 'resource-exhausted') {
           alert('You have reached your daily limit for AI analysis. Please use manual entry for additional meals today.');
@@ -933,7 +928,6 @@ export function Dashboard() {
       const finalDescription = naturalLanguageDescription.trim() || undefined;
       
       try {
-        // Call analyzeMeal with both image and optional description
         const result = await analyzeMealFn({ 
           imageUrl: photoImageUrl,
           description: finalDescription
@@ -956,8 +950,13 @@ export function Dashboard() {
           carbs_g: Number(carbs_g) || 0,
           reasoning,
           imageUrl: photoImageUrl,
-          createdAt: serverTimestamp(),
+          createdAt: Timestamp.fromDate(selectedDate),
         });
+        
+        setNaturalLanguageDescription('');
+        setShowPhotoFollowupModal(false);
+        setPhotoImageUrl(null);
+        setRefreshTrigger(prev => prev + 1);
       } catch (functionError: any) {
         // Delete the uploaded image since we couldn't analyze it
         try {
@@ -987,12 +986,6 @@ export function Dashboard() {
           throw functionError; // Re-throw other errors to be caught by outer catch
         }
       }
-      
-      // Reset state on success
-      setNaturalLanguageDescription('');
-      setShowPhotoFollowupModal(false);
-      setPhotoImageUrl(null);
-      setRefreshTrigger(prev => prev + 1); // Trigger refresh of remaining requests
     } catch (error) {
       console.error('Error processing photo with description:', error);
       alert('Failed to process meal. Please try again or use manual entry.');
@@ -1030,7 +1023,7 @@ export function Dashboard() {
         carbs_g: Number(carbs_g) || 0,
         reasoning,
         imageUrl: photoImageUrl,
-        createdAt: serverTimestamp(),
+        createdAt: Timestamp.fromDate(selectedDate),
       });
       
       setShowPhotoFollowupModal(false);
@@ -1116,7 +1109,7 @@ export function Dashboard() {
         protein_g: editForm.protein_g,
         fat_g: editForm.fat_g,
         carbs_g: editForm.carbs_g,
-        createdAt: serverTimestamp(),
+        createdAt: Timestamp.fromDate(selectedDate),
       };
 
       await addDoc(entriesCol, newMeal);
@@ -1168,7 +1161,6 @@ export function Dashboard() {
           aria-label="Next day"
           className="btn btn-ghost btn-sm"
           onClick={goToNextDay}
-          disabled={isSelectedDateToday}
         >
           →
         </button>
@@ -1202,23 +1194,15 @@ export function Dashboard() {
               <h3 className="text-lg font-medium text-gray-900 mb-2">
                 No meals logged yet
               </h3>
-              {isSelectedDateInPast ? (
-                <p className="text-gray-600 mb-6">
-                  Days in the past are not editable right now
-                </p>
-              ) : (
-                <>
-                  <p className="text-gray-600 mb-6">
-                    Start tracking your nutrition by adding your first meal!
-                  </p>
-                  <button 
-                    onClick={handleAddMeal}
-                    className="btn btn-primary"
-                  >
-                    📷 Add Your First Meal
-                  </button>
-                </>
-              )}
+              <p className="text-gray-600 mb-6">
+                Start tracking your nutrition by adding your first meal!
+              </p>
+              <button 
+                onClick={handleAddMeal}
+                className="btn btn-primary"
+              >
+                📷 Add Your First Meal
+              </button>
             </div>
           </div>
         ) : (
@@ -1245,41 +1229,39 @@ export function Dashboard() {
       </div>
 
       {/* Floating Action Buttons */}
-      {!isSelectedDateInPast && (
-        <div className="fab-container">
-          <button
-            onClick={handleAddMeal}
-            className="fab fab-primary"
-            title="Take Photo"
-          >
-            📷
-          </button>
+      <div className="fab-container">
+        <button
+          onClick={handleAddMeal}
+          className="fab fab-primary"
+          title="Take Photo"
+        >
+          📷
+        </button>
 
-          <button
-            onClick={() => setShowNaturalLanguageModal(true)}
-            className="fab fab-accent"
-            title="Describe Your Meal"
-          >
-            💬
-          </button>
+        <button
+          onClick={() => setShowNaturalLanguageModal(true)}
+          className="fab fab-accent"
+          title="Describe Your Meal"
+        >
+          💬
+        </button>
 
-          <button
-            onClick={() => setShowManualMealModal(true)}
-            className="fab fab-secondary"
-            title="Add Manual Meal"
-          >
-            ✏️
-          </button>
+        <button
+          onClick={() => setShowManualMealModal(true)}
+          className="fab fab-secondary"
+          title="Add Manual Meal"
+        >
+          ✏️
+        </button>
 
-          <button
-            onClick={handleAddPastMeal}
-            className="fab fab-grey"
-            title="Add Past Meal"
-          >
-            📖
-          </button>
-        </div>
-      )}
+        <button
+          onClick={handleAddPastMeal}
+          className="fab fab-grey"
+          title="Add Past Meal"
+        >
+          📖
+        </button>
+      </div>
 
       {/* Hidden file input */}
       <input

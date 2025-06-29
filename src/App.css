@@ -1,8 +1,27 @@
 /* App Layout */
 .app {
   min-height: 100vh;
+  /* Use safe area insets for PWA on iOS */
+  min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
   background: linear-gradient(135deg, var(--primary-50) 0%, var(--gray-50) 100%);
   position: relative;
+}
+
+/* PWA Status Bar Background */
+.app::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  background: var(--primary-500);
+  z-index: 1000;
+  pointer-events: none;
 }
 
 /* Brand Logo */
